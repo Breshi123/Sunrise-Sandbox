@@ -13,6 +13,7 @@
 
 #include "../../../../resources/resource.h"
 #include "../../../core/logging/log.h"
+#include "../../../core/settings/settings.h"
 #include "../../hooking/detour.h"
 #include "../../patterns/image_scan.h"
 
@@ -414,6 +415,12 @@ void clear_assets() noexcept {
 /** Loads embedded DDS files and attaches the decoded GPU-entry dispatcher. */
 bool install(void* module) noexcept {
     if (g_handle.attached) {
+        return true;
+    }
+    if (!core::settings::get().client.customBootflowTextures) {
+        core::log::write(core::log::Channel::client,
+                         core::log::Level::info,
+                         "ev=bootflow_texture stage=setting enabled=0 result=skip");
         return true;
     }
     if (!load_assets(static_cast<HMODULE>(module))) {
