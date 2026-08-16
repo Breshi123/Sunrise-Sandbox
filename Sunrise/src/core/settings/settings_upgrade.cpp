@@ -30,10 +30,12 @@ struct ReplacedMember {
  * Members replaced with the bundled default, each with the version that changed it.
  * A member is listed because its value form changed, or because its default changed.
  */
-constexpr std::array<ReplacedMember, 3> kReplacedMembers{{
+constexpr std::array<ReplacedMember, 5> kReplacedMembers{{
     {"\"key_bindings\"", 3},
-    {"\"region_private\"", 4},
-    {"\"topology\"", 4},
+    {"\"region_private\"", 5},
+    {"\"topology\"", 5},
+    {"\"characters\"", 5},
+    {"\"profile_items\"", 6},
 }};
 /** One splice per replaced member, plus the version member itself. */
 constexpr std::size_t kSpliceCapacity = kReplacedMembers.size() + 1;
@@ -213,8 +215,7 @@ bool apply(std::string_view document,
 
     const std::uint32_t from = document_version(document);
     for (const ReplacedMember& member : kReplacedMembers) {
-        // A file at or past that version keeps its own value, so an upgrade never overwrites a
-        // choice the user made against the current layout.
+        // A file at or past that version keeps its own value, so a user choice is never lost.
         if (from >= member.version) {
             continue;
         }

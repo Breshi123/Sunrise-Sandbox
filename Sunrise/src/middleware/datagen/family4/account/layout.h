@@ -36,8 +36,10 @@ inline constexpr std::size_t kPreferencesBindingsPaddingSize = 607;
 inline constexpr std::size_t kBindingsProfilePaddingSize = 456;
 /** Native inventory counts are followed by 4 reserved alignment bytes. */
 inline constexpr std::size_t kInventoryCountPaddingSize = 4;
-/** 708 reserved bytes separate secondary items from progressions. */
-inline constexpr std::size_t kSecondaryProgressionPaddingSize = 708;
+/** The profile inventory observer reads 16 transient mutation descriptors. */
+inline constexpr std::size_t kProfileInventoryChangeRecordCapacity = 16;
+/** Opaque bytes after the profile mutation bank keep the progression bank at its native offset. */
+inline constexpr std::size_t kProfileInventoryProgressionPaddingSize = 512;
 /** The account acquired-flag bank holds one byte per flag. */
 inline constexpr std::size_t kAcquiredFlagCapacity = 12'300;
 /** The account objective-value bank holds one signed value per objective. */
@@ -78,6 +80,8 @@ inline constexpr std::size_t kProfileItemsOffset = 4'368;
 inline constexpr std::size_t kSecondaryItemCountOffset = 26'800;
 /** The secondary inventory rows follow their count and alignment bytes. */
 inline constexpr std::size_t kSecondaryItemsOffset = 26'808;
+/** The profile-inventory mutation bank follows the complete secondary inventory. */
+inline constexpr std::size_t kProfileInventoryChangesOffset = 27'000;
 /** The fixed progression bank precedes the account acquired-flag bank. */
 inline constexpr std::size_t kProgressionsOffset = 27'708;
 /** The account acquired-flag bank follows every fixed progression row. */
@@ -95,6 +99,26 @@ inline constexpr std::size_t kProfileUnlockFlagsOffset = 74'384;
 struct CharacterUnlockBlock {
     std::array<std::uint8_t, kCharacterFlagCapacity> flags{};
     std::array<std::int32_t, kCharacterValueCapacity> values{};
+};
+
+/** One transient profile inventory mutation consumed by the native account-object observer. */
+struct ProfileInventoryChangeRecord {
+    std::uint16_t sequence{};
+    std::uint16_t reserved{};
+    /** Mutation serial of the profile inventory row this record describes. */
+    std::int32_t mutationSerial{};
+    /** Nonzero mutation kind. Kind 1 follows the ordinary acquisition path. */
+    std::uint8_t kind{};
+    std::uint8_t reservedKind{};
+    /** Native observer policy bits; 0 enables the ordinary acquisition path. */
+    std::uint16_t flags{};
+};
+
+/** Header and fixed record bank beginning at native account-object offset 0x6978. */
+struct ProfileInventoryChangeList {
+    std::uint16_t writeSlot{};
+    std::uint16_t nextSequence{};
+    std::array<ProfileInventoryChangeRecord, kProfileInventoryChangeRecordCapacity> records{};
 };
 
 /** Byte-exact Family-4 account object generated from State. */
@@ -118,7 +142,9 @@ struct Object {
     std::uint32_t secondaryItemCount{};
     std::array<std::byte, kInventoryCountPaddingSize> secondaryCountPadding{};
     std::array<inventory::layout::Entry, kSecondaryItemCapacity> secondaryItems{};
-    std::array<std::byte, kSecondaryProgressionPaddingSize> secondaryProgressionPadding{};
+    ProfileInventoryChangeList profileInventoryChanges{};
+    std::array<std::byte, kProfileInventoryProgressionPaddingSize>
+        profileInventoryProgressionPadding{};
     std::array<progression::layout::Entry, kProgressionCapacity> progressions{};
     std::array<std::uint8_t, kAcquiredFlagCapacity> acquiredFlags{};
     std::array<std::int32_t, kObjectiveValueCapacity> objectiveValues{};
@@ -145,6 +171,7 @@ static_assert(offsetof(Object, profileItemCount) == kProfileItemCountOffset);
 static_assert(offsetof(Object, profileItems) == kProfileItemsOffset);
 static_assert(offsetof(Object, secondaryItemCount) == kSecondaryItemCountOffset);
 static_assert(offsetof(Object, secondaryItems) == kSecondaryItemsOffset);
+static_assert(offsetof(Object, profileInventoryChanges) == kProfileInventoryChangesOffset);
 static_assert(offsetof(Object, progressions) == kProgressionsOffset);
 static_assert(offsetof(Object, acquiredFlags) == kAcquiredFlagsOffset);
 static_assert(offsetof(Object, objectiveValues) == kObjectiveValuesOffset);
@@ -152,6 +179,12 @@ static_assert(offsetof(Object, characterUnlocks) == kCharacterUnlocksOffset);
 static_assert(offsetof(Object, profileUnlockFlags) == kProfileUnlockFlagsOffset);
 static_assert(sizeof(CharacterUnlockBlock)
               == kCharacterFlagCapacity + kCharacterValueCapacity * sizeof(std::int32_t));
+static_assert(sizeof(ProfileInventoryChangeRecord)
+              == 3 * sizeof(std::uint16_t) + sizeof(std::int32_t) + 2 * sizeof(std::uint8_t));
+static_assert(sizeof(ProfileInventoryChangeList)
+              == 2 * sizeof(std::uint16_t)
+                     + kProfileInventoryChangeRecordCapacity
+                           * sizeof(ProfileInventoryChangeRecord));
 static_assert(std::is_standard_layout_v<Object>);
 static_assert(std::is_trivially_copyable_v<Object>);
 

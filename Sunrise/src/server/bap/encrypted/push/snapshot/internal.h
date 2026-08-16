@@ -101,6 +101,90 @@ inline constexpr std::size_t kSingleObjectCount = 1;
                                           const queuez::SelectCharacter& select,
                                           Prepared& prepared) noexcept;
 
+/**
+ * Builds the Family-4 character upsert for one prepared equipment swap.
+ * @param scratch
+ * Object and compression storage owned by the lock.
+ * @param swap Checked queuez version
+ * after-image and resident character definition.
+ * @param mutation Checked State after-image that
+ * is not committed yet.
+ * @param prepared Gets the single character upsert descriptor.
+ * @return
+ * True when the after-image encodes and the complete object fits.
+ */
+[[nodiscard]] bool prepare_equipment_swap(Scratch& scratch,
+                                          const queuez::EquipmentSwap& swap,
+                                          const state::PendingEquipmentSwap& mutation,
+                                          Prepared& prepared) noexcept;
+
+/** Builds the Family-4 character upsert carrying one accumulated item-state change. */
+[[nodiscard]] bool prepare_item_state(Scratch& scratch,
+                                      const queuez::EquipmentSwap& update,
+                                      const state::PendingItemState& mutation,
+                                      Prepared& prepared) noexcept;
+
+/**
+ * Builds the Family-4 item-instance upsert for one prepared ordinary-socket selection.
+ * The
+ * character object is unchanged because item identity, placement, and mutation generation are
+ *
+ * preserved; the socket block lives entirely in the resident instance object.
+ */
+[[nodiscard]] bool prepare_socket_plug(Scratch& scratch,
+                                       const queuez::SocketPlug& socketPlug,
+                                       const state::PendingSocketPlug& mutation,
+                                       Prepared& prepared) noexcept;
+
+/**
+ * Builds one Family-4 increment containing the newly resident item object followed by the
+ *
+ * changed character that references it.
+ * @param scratch Object and compression storage owned by
+ * the lock.
+ * @param acquisition Exact queuez after-image promised by the correlated response.
+ *
+ * @param mutation Checked State after-image that remains uncommitted while output is staged.
+ *
+ * @param prepared Gets the two complete upsert descriptors in item-then-character dependency
+ *
+ * order.
+ * @return True when both after-image objects encode and fit atomically.
+ */
+[[nodiscard]] bool prepare_item_acquisition(Scratch& scratch,
+                                            const queuez::ItemAcquisition& acquisition,
+                                            const state::PendingItemAcquisition& mutation,
+                                            Prepared& prepared) noexcept;
+
+/**
+ * Builds one Family-4 increment containing the full account after-image for a profile stack.
+ *
+ * No resident is added: the account root is upserted at the exact staged +1 revision.
+ */
+[[nodiscard]] bool
+prepare_profile_item_acquisition(Scratch& scratch,
+                                 const queuez::ProfileItemAcquisition& acquisition,
+                                 const state::PendingProfileItemAcquisition& mutation,
+                                 Prepared& prepared) noexcept;
+
+/**
+ * Builds one Family-4 increment containing the changed character and released item instance.
+ *
+ * @param scratch Object and compression storage owned by the lock.
+ * @param dismantle Exact queuez
+ * after-image promised by the correlated response.
+ * @param mutation Checked State after-image
+ * that remains uncommitted while output is staged.
+ * @param prepared Gets the character upsert
+ * followed by the empty release descriptor.
+ * @return True when the character after-image and
+ * complete two-operation update fit atomically.
+ */
+[[nodiscard]] bool prepare_item_dismantle(Scratch& scratch,
+                                          const queuez::ItemDismantle& dismantle,
+                                          const state::PendingItemDismantle& mutation,
+                                          Prepared& prepared) noexcept;
+
 /** Selected-character mappings the character and item-instance encoders need. */
 struct Resolved {
     std::size_t characterIndex{};
@@ -170,5 +254,24 @@ append_items(Scratch& scratch,
              Prepared& staged,
              std::size_t& itemCursor,
              std::size_t& compressedExtent) noexcept;
+
+/** Resolves one source-backed profile stack into the shared Family-4 item-instance schema. */
+[[nodiscard]] bool resolve_profile_item_instance(
+    const state::account::inventory::ProfileItem& profileItem,
+    middleware::datagen::family4::instance::ResolvedInstance& output) noexcept;
+
+/**
+ * Appends every source-backed profile item after all character-owned item residents.
+ * Native
+ * currency/material/consumable rows have zero SOIDs and intentionally add no descriptor.
+ */
+[[nodiscard]] bool append_profile_items(Scratch& scratch,
+                                        std::span<std::byte> rawStorage,
+                                        std::uint32_t itemInstanceObjectId,
+                                        const state::AccountState& account,
+                                        std::size_t baseIndex,
+                                        Prepared& staged,
+                                        std::size_t& itemCursor,
+                                        std::size_t& compressedExtent) noexcept;
 
 } // namespace sunrise::server::bap::encrypted::push::snapshot

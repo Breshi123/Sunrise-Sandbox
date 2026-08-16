@@ -49,13 +49,32 @@ struct Sockets {
     std::size_t plugCount{};
 };
 
-/** Account-wide profile items an account may declare. */
-inline constexpr std::size_t kProfileItemCapacity = 32;
+/** Account-wide stacks can occupy every row of the native 701-row profile inventory. */
+inline constexpr std::size_t kProfileItemCapacity = 701;
+/** The supported mod and shader profile bucket runs reserve 50 action-source rows each. */
+inline constexpr std::size_t kProfileActionSourceCapacity = 100;
+/** Runtime-owned SOIDs for profile stacks use a namespace separate from created item instances. */
+inline constexpr std::uint64_t kFirstProfileItemInstanceSoid = 0x5000000000000001ULL;
+/**
+ * Native item-state bit the Client sets to lock one item against destruction.
+ * Confirmed against the installed build by three observed lock and unlock transitions.
+ */
+inline constexpr std::uint32_t kLockedItemFlag = 0x1;
+/**
+ * The 16 supported character equipment buckets reserve 151 native rows in this build. One row
+
+ * * per semantic slot can be equipped, leaving at most 135 simultaneously unequipped instances.
+ */
+inline constexpr std::size_t kCharacterItemCapacity = 135;
 
 /** One authored account-wide item, placed by the inventory bucket its definition names. */
 struct ProfileItem {
+    /** Stable runtime identity required to materialize this row as an inventory action source. */
+    std::uint64_t instanceSoid{};
     std::uint32_t definitionHash{};
     std::int32_t quantity{};
+    /** Rising generation copied into the native row and matched by acquisition feedback. */
+    std::int32_t mutationSerial{};
 };
 
 /** One authored equipment item without native table or wire-layout fields. */
@@ -64,7 +83,17 @@ struct Item {
     std::uint32_t definitionHash{};
     std::int32_t level{};
     std::int32_t quantity{};
+    /** Rising per-character generation assigned whenever this item changes inventory rows. */
+    std::int32_t mutationSerial{};
+    /** Native accumulated item-state bits such as the finisher favorite marker. */
+    std::uint32_t flags{};
     Sockets sockets;
+};
+
+/** Ordered unequipped items placed into their native character-inventory bucket ranges. */
+struct CharacterItems {
+    std::array<Item, kCharacterItemCapacity> values{};
+    std::size_t count{};
 };
 
 /** One optional authored item for every semantic equipment slot. */
@@ -96,5 +125,8 @@ struct Equipment {
  * @return True when every used slot holds a whole item.
  */
 [[nodiscard]] bool valid(const Equipment& equipment) noexcept;
+
+/** Checks the used prefix and empty tail of one character's unequipped item array. */
+[[nodiscard]] bool valid(const CharacterItems& items) noexcept;
 
 } // namespace sunrise::state::account::inventory

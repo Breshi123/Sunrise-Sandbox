@@ -117,6 +117,14 @@ struct Session {
     std::uint64_t bannerRepushRoot{};
     /** True while one banner re-push is still owed to this peer. */
     bool bannerRepushArmed{};
+    /** Latest shared-account generation this peer has received. */
+    std::uint64_t accountGeneration{};
+    /** Newest shared-account generation owed as a full cross-peer refresh. */
+    std::uint64_t accountResyncGeneration{};
+    /** Set by encrypted processing only after one account mutation commits and is copied out. */
+    bool accountMutationPublished{};
+    /** True while another peer's account mutation still needs a full local refresh. */
+    bool accountResyncArmed{};
 };
 
 namespace plaintext {
@@ -125,6 +133,7 @@ namespace plaintext {
  * Handles plaintext bootstrap services, arms encryption after service 25, and routes the rest.
  * @param session Auth and nonce state owned by the connection.
  * @param scratch Transform buffers owned by the lock, kept off the Client thread stack.
+ * @param outer Parsed outer frame carrying the service id and its body.
  * @param response Whole-frame storage owned by the caller.
  * @param written Gets the encoded response size in bytes.
  * @return True when the service owes no reply, or its response is encoded.

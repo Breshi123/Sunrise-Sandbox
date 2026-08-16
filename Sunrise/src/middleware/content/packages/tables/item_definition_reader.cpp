@@ -26,6 +26,21 @@ constexpr std::size_t kSocketTypeOffset = 0;
 constexpr std::size_t kSocketPlugOffset = 2;
 /** Fixed fields end after the instanced predicate. */
 constexpr std::size_t kFixedFieldEnd = kInstancedOffset + 1;
+/** Optional plug category used to expand three native reusable plug families. */
+constexpr std::size_t kPlugCategoryOffset = 392;
+/** Embedded reusable-list array descriptor inside one 80-byte ordinary socket entry. */
+constexpr std::size_t kEmbeddedPlugListOffset = 64;
+/** Reusable and randomized shared plug-set row indices inside one socket entry. */
+constexpr std::size_t kReusablePlugSetIndexOffset = 12;
+constexpr std::size_t kRandomizedPlugSetIndexOffset = 32;
+/** One shared plug-set table row is 24 bytes and carries its member descriptor at byte 8. */
+constexpr std::size_t kPlugSetRowStride = 24;
+constexpr std::size_t kPlugSetMemberDescriptorOffset = 8;
+/** Both embedded and shared plug member rows name an item index first and occupy 32 bytes. */
+constexpr std::size_t kPlugMemberStride = 32;
+constexpr std::size_t kPlugMemberIndexOffset = 0;
+/** Native arrays use 16-bit definition indices even though their serialized field is 32-bit. */
+constexpr std::uint64_t kMaximumPlugMemberCount = 65535;
 
 /** @param blob Source bytes. @param offset Field offset. @param value Receives the field. */
 template <typename Value>
@@ -69,6 +84,7 @@ void read_socket_entry_list(std::span<const std::byte> definition, Row& row) noe
  * Reads the optional equipment slot a definition declares.
  * @param definition Whole item definition bytes.
  * @param slot Receives the slot when the block is present and readable.
+ * @param raw Receives the unvalidated declared value, or -1 when the block is absent.
  */
 void read_equipment_slot(std::span<const std::byte> definition,
                          std::optional<std::int8_t>& slot,
@@ -133,6 +149,61 @@ void read_sockets(std::span<const std::byte> definition, Row& row) noexcept {
     }
 }
 
+/** Walks one checked array of 32-byte plug rows. */
+[[nodiscard]] bool visit_plug_array(std::span<const std::byte> blob,
+                                    const Array& array,
+                                    AllowedPlugVisitor visitor,
+                                    void* context) noexcept {
+    if (array.count > kMaximumPlugMemberCount || array.dataOffset > blob.size()
+        || array.count > (blob.size() - array.dataOffset) / kPlugMemberStride) {
+        return false;
+    }
+    for (std::uint64_t index = 0; index < array.count; ++index) {
+        std::uint32_t itemDefinitionIndex = 0;
+        const std::size_t row =
+            array.dataOffset + static_cast<std::size_t>(index) * kPlugMemberStride;
+        if (!read(blob, row + kPlugMemberIndexOffset, itemDefinitionIndex)
+            || !visitor(context, itemDefinitionIndex)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** Walks one reusable or randomized shared plug-set row, when the socket declares it. */
+[[nodiscard]] bool visit_shared_plug_set(std::span<const std::byte> definition,
+                                         std::size_t socketEntry,
+                                         std::size_t setIndexOffset,
+                                         std::span<const std::byte> plugSetTable,
+                                         const Array& sets,
+                                         AllowedPlugVisitor visitor,
+                                         void* context) noexcept {
+    std::uint16_t setIndex = kUnavailablePlug;
+    if (!read(definition, socketEntry + setIndexOffset, setIndex)) {
+        return false;
+    }
+    if (setIndex == kUnavailablePlug) {
+        return true;
+    }
+    if (setIndex >= sets.count || sets.dataOffset > plugSetTable.size()
+        || sets.count > (plugSetTable.size() - sets.dataOffset) / kPlugSetRowStride) {
+        return false;
+    }
+    const std::size_t descriptor = sets.dataOffset
+                                   + static_cast<std::size_t>(setIndex) * kPlugSetRowStride
+                                   + kPlugSetMemberDescriptorOffset;
+    std::uint64_t memberCount = 0;
+    if (!read(plugSetTable, descriptor, memberCount)) {
+        return false;
+    }
+    if (memberCount == 0) {
+        return true;
+    }
+    Array members{};
+    return find_array_at(plugSetTable, descriptor, members)
+           && visit_plug_array(plugSetTable, members, visitor, context);
+}
+
 /** The block header carries its own self-relative pointer to the entries at byte 8. */
 constexpr std::size_t kStatDataMember = 8;
 /** One stat entry is 40 blob bytes. */
@@ -192,6 +263,8 @@ bool read_definition(std::span<const std::byte> definition, Row& row) noexcept {
     row = {};
     row.definitionHash = hash;
     row.definitionIndex = index;
+    row.insertionMaterialRequirementSetIndex = kUnavailableMaterialRequirementSetIndex;
+    row.enabledMaterialRequirementSetIndex = kUnavailableMaterialRequirementSetIndex;
     std::fill(std::begin(row.initialPlugs), std::end(row.initialPlugs), kUnavailablePlug);
     std::fill(std::begin(row.socketTypes), std::end(row.socketTypes), kUnavailableSocketType);
     if (definition.size() < kFixedFieldEnd) {
@@ -204,12 +277,75 @@ bool read_definition(std::span<const std::byte> definition, Row& row) noexcept {
         return false;
     }
     row.instanced = instanced != 0;
+    // Short legacy definitions simply do not declare a plug category.
+    (void)read(definition, kPlugCategoryOffset, row.plugCategoryHash);
+    (void)read(definition,
+               kInsertionMaterialRequirementSetIndexOffset,
+               row.insertionMaterialRequirementSetIndex);
+    (void)read(definition,
+               kEnabledMaterialRequirementSetIndexOffset,
+               row.enabledMaterialRequirementSetIndex);
     read_stats(definition, row);
     read_appearance(definition, row);
     read_socket_entry_list(definition, row);
     read_equipment_slot(definition, row.equipmentSlot, row.rawEquipmentSlot);
     read_sockets(definition, row);
     return true;
+}
+
+/** Visits every list-backed allowed plug for one exact ordinary socket lane. */
+bool visit_allowed_plugs(std::span<const std::byte> definition,
+                         std::span<const std::byte> plugSetTable,
+                         std::uint8_t lane,
+                         AllowedPlugVisitor visitor,
+                         void* context) noexcept {
+    if (visitor == nullptr || lane >= kSocketCapacity) {
+        return false;
+    }
+    std::int64_t socketBlockRelative = 0;
+    if (!read(definition, kSocketBlockOffset, socketBlockRelative) || socketBlockRelative == 0) {
+        return false;
+    }
+    const std::int64_t socketBlock =
+        static_cast<std::int64_t>(kSocketBlockOffset) + socketBlockRelative;
+    if (socketBlock < 0 || static_cast<std::uint64_t>(socketBlock) >= definition.size()) {
+        return false;
+    }
+    Array sockets{};
+    if (!find_array_at(definition, static_cast<std::size_t>(socketBlock), sockets)
+        || sockets.elementClass != kOrdinarySocketClass || lane >= sockets.count
+        || sockets.dataOffset > definition.size()
+        || sockets.count > (definition.size() - sockets.dataOffset) / kSocketEntryStride) {
+        return false;
+    }
+    Array sets{};
+    if (!find_array_at(plugSetTable, kTableArrayDescriptor, sets)) {
+        return false;
+    }
+    const std::size_t socketEntry =
+        sockets.dataOffset + static_cast<std::size_t>(lane) * kSocketEntryStride;
+    Array embedded{};
+    std::uint64_t embeddedCount = 0;
+    if (!read(definition, socketEntry + kEmbeddedPlugListOffset, embeddedCount)
+        || (embeddedCount != 0
+            && (!find_array_at(definition, socketEntry + kEmbeddedPlugListOffset, embedded)
+                || !visit_plug_array(definition, embedded, visitor, context)))) {
+        return false;
+    }
+    return visit_shared_plug_set(definition,
+                                 socketEntry,
+                                 kReusablePlugSetIndexOffset,
+                                 plugSetTable,
+                                 sets,
+                                 visitor,
+                                 context)
+           && visit_shared_plug_set(definition,
+                                    socketEntry,
+                                    kRandomizedPlugSetIndexOffset,
+                                    plugSetTable,
+                                    sets,
+                                    visitor,
+                                    context);
 }
 
 } // namespace sunrise::middleware::content::packages::tables::items

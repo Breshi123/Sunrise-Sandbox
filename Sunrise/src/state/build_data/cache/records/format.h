@@ -7,11 +7,14 @@
 
 #include "../../../content/content_catalog.h"
 #include "../../abilities/definition.h"
+#include "../../collectibles/collectible_catalog.h"
 #include "../../constants/definition.h"
 #include "../../definition.h"
 #include "../../hash_names/definition.h"
 #include "../../items/details/definition.h"
 #include "../../items/item_catalog.h"
+#include "../../items/socket_plugs/definition.h"
+#include "../../material_requirements/material_requirement_catalog.h"
 #include "../../progressions/definition.h"
 #include "../../scenarios/definition.h"
 #include "../../spawn_sets/definition.h"
@@ -25,7 +28,7 @@ inline constexpr std::array<char, 8> kCacheMagic{'S', 'U', 'N', 'R', 'I', 'S', '
  * Current build-data cache format. An older cache is rebuilt rather than read, so a bump needs
  * no other edit. Bump it whenever a domain's stored shape changes.
  */
-inline constexpr std::uint32_t kCacheFormatVersion = 24;
+inline constexpr std::uint32_t kCacheFormatVersion = 34;
 /** Signed -1 on disk means there is no equipment slot. */
 inline constexpr std::int8_t kAbsentEquipmentSlot = -1;
 /** The standard 64-bit FNV-1a offset basis starts the payload checksum. */
@@ -63,7 +66,12 @@ struct Header {
     std::uint64_t configuredEquipmentHash{};
     std::uint32_t namedCount{};
     std::uint32_t itemCount{};
+    std::uint32_t collectibleCount{};
+    std::uint32_t materialRequirementSetCount{};
     std::uint32_t itemDetailCount{};
+    std::uint32_t socketPlugRuleCount{};
+    std::uint32_t socketPlugPoolCount{};
+    std::uint32_t socketPlugMemberCount{};
     std::uint32_t inventoryBucketCount{};
     std::uint32_t socketEntryListCount{};
     std::uint32_t socketEntryTableCount{};
@@ -99,9 +107,48 @@ struct ItemRecord {
     std::uint8_t bucketId{items::kUnresolvedBucketId};
     /** Must be zero, so the packed item row matches across compilers. */
     std::uint8_t reserved{};
+    std::uint16_t insertionMaterialRequirementSetIndex{
+        items::kUnavailableMaterialRequirementSetIndex};
+    std::uint16_t enabledMaterialRequirementSetIndex{
+        items::kUnavailableMaterialRequirementSetIndex};
 };
 
-/** Disk form of the configured item fields instance generation uses. */
+/** Disk form of one material charged by a native Collections acquisition. */
+struct MaterialRequirementRecord {
+    std::uint32_t quantity{};
+    std::uint16_t itemDefinitionIndex{collectibles::kUnavailableItemDefinitionIndex};
+    std::uint16_t condition{material_requirements::kUnconditionalRequirement};
+    std::uint8_t deleteOnAction{};
+    std::uint8_t omitFromRequirements{};
+};
+
+/** Disk form of one native collectible ordinal, item link, and installed acquisition cost. */
+struct CollectibleRecord {
+    std::uint32_t collectibleHash{};
+    std::uint32_t materialRequirementSetHash{};
+    std::uint16_t collectibleIndex{};
+    std::uint16_t itemDefinitionIndex{collectibles::kUnavailableItemDefinitionIndex};
+    std::uint16_t materialRequirementSetIndex{
+        collectibles::kUnavailableMaterialRequirementSetIndex};
+    std::uint8_t materialRequirementCount{};
+    /** Must be zero, so unused bytes have one canonical representation. */
+    std::uint8_t reserved{};
+    std::array<MaterialRequirementRecord, collectibles::kMaterialRequirementCapacity>
+        materialRequirements{};
+};
+
+/** Disk form of one dense installed action-cost set. */
+struct MaterialRequirementSetRecord {
+    std::uint32_t requirementSetHash{};
+    std::uint16_t requirementSetIndex{material_requirements::kUnavailableSetIndex};
+    std::uint8_t requirementCount{};
+    /** Must be zero, so unused bytes have one canonical representation. */
+    std::uint8_t reserved{};
+    std::array<MaterialRequirementRecord, material_requirements::kRequirementCapacity>
+        requirements{};
+};
+
+/** Disk form of the supported item fields instance generation uses. */
 struct ItemDetailRecord {
     std::uint16_t definitionIndex{};
     std::uint8_t bucketId{};
@@ -120,7 +167,7 @@ struct ItemDetailRecord {
     std::array<std::int32_t, items::details::kStatCapacity> statValues{};
     std::uint32_t definitionHash{};
     std::uint16_t gearArtIndex{};
-    std::uint16_t artArrangementIndex{};
+    std::array<std::uint16_t, items::details::kArtClassCapacity> artArrangementIndices{};
     std::uint8_t sandboxPerkCount{};
     std::array<std::uint16_t, items::details::kSandboxPerkCapacity> sandboxPerks{};
     /** Material override rows in the stage order the character record folds them in. */
@@ -130,12 +177,34 @@ struct ItemDetailRecord {
     std::array<std::uint16_t, items::details::kRenderOverrideCapacity> overrideValues{};
 };
 
+/** Disk form of one exact item/lane-to-deduplicated-pool rule. */
+struct SocketPlugRuleRecord {
+    std::uint16_t itemDefinitionIndex{};
+    std::uint8_t lane{};
+    /** Must be zero so all unused bytes have one canonical value. */
+    std::uint8_t reserved{};
+    std::uint32_t poolIndex{};
+};
+
+/** Disk form of one contiguous range in the flat allowed-plug member bank. */
+struct SocketPlugPoolRecord {
+    std::uint32_t memberOffset{};
+    std::uint32_t memberCount{};
+};
+
+/** Disk form of one native item-definition index allowed as a plug. */
+struct SocketPlugMemberRecord {
+    std::uint16_t itemDefinitionIndex{};
+};
+
 /** Disk form of one inventory-bucket array-routing descriptor. */
 struct InventoryBucketRecord {
     std::uint8_t bucketId{};
     std::uint8_t arraySelector{};
     std::uint16_t firstSlot{};
     std::uint16_t slotCount{};
+    std::int8_t equipmentSlot{inventory::buckets::kUnavailableEquipmentSlot};
+    std::uint8_t reserved{};
 };
 
 /** Disk form of the buckets one subclass publishes under one ability selection. */
@@ -326,7 +395,7 @@ static_assert(sizeof(Prefix) == kCacheMagic.size() + sizeof(std::uint32_t));
 static_assert(sizeof(InvestmentConstants)
               == constants::kCharacterStatRowCount + 2 * sizeof(std::uint8_t));
 static_assert(sizeof(Header)
-              == kCacheMagic.size() + 20 * sizeof(std::uint32_t) + 2 * sizeof(std::uint64_t)
+              == kCacheMagic.size() + 25 * sizeof(std::uint32_t) + 2 * sizeof(std::uint64_t)
                      + sizeof(InvestmentConstants));
 static_assert(sizeof(VendorIndexRecord) == 2 * sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t));
 static_assert(sizeof(VendorDefinitionRecord)
@@ -367,17 +436,31 @@ static_assert(sizeof(NamedRecord)
               == content::kDefinitionNameCapacity + 2 * sizeof(std::uint16_t)
                      + 2 * sizeof(std::uint32_t));
 static_assert(sizeof(ItemRecord)
-              == sizeof(std::uint32_t) + sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t));
+              == sizeof(std::uint32_t) + 3 * sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t));
+static_assert(sizeof(MaterialRequirementRecord)
+              == sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t));
+static_assert(sizeof(CollectibleRecord)
+              == 2 * sizeof(std::uint32_t) + 3 * sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t)
+                     + collectibles::kMaterialRequirementCapacity
+                           * sizeof(MaterialRequirementRecord));
+static_assert(sizeof(MaterialRequirementSetRecord)
+              == sizeof(std::uint32_t) + sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t)
+                     + material_requirements::kRequirementCapacity
+                           * sizeof(MaterialRequirementRecord));
 static_assert(sizeof(ItemDetailRecord)
-              == 4 * sizeof(std::uint16_t) + 8 * sizeof(std::uint8_t) + sizeof(std::int32_t)
+              == 7 * sizeof(std::uint16_t) + 8 * sizeof(std::uint8_t) + sizeof(std::int32_t)
                      + sizeof(std::uint32_t)
                      + 2 * items::details::kInitialPlugCapacity * sizeof(std::uint16_t)
                      + items::details::kStatCapacity * (sizeof(std::uint8_t) + sizeof(std::int32_t))
                      + items::details::kSandboxPerkCapacity * sizeof(std::uint16_t)
                      + items::details::kRenderOverrideCapacity
                            * (2 * sizeof(std::uint8_t) + sizeof(std::uint16_t)));
+static_assert(sizeof(SocketPlugRuleRecord)
+              == sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t) + sizeof(std::uint32_t));
+static_assert(sizeof(SocketPlugPoolRecord) == 2 * sizeof(std::uint32_t));
+static_assert(sizeof(SocketPlugMemberRecord) == sizeof(std::uint16_t));
 static_assert(sizeof(InventoryBucketRecord)
-              == 2 * sizeof(std::uint8_t) + 2 * sizeof(std::uint16_t));
+              == 4 * sizeof(std::uint8_t) + 2 * sizeof(std::uint16_t));
 static_assert(sizeof(SocketEntryListRecord)
               == sizeof(std::uint32_t) + sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t)
                      + sizeof(std::uint64_t));

@@ -62,7 +62,18 @@ void clear(records::MutableDomains output) noexcept {
     }
     std::fill(output.named.begin(), output.named.end(), content::Definition{});
     std::fill(output.items.begin(), output.items.end(), items::Definition{});
+    std::fill(output.collectibles.begin(), output.collectibles.end(), collectibles::Definition{});
+    std::fill(output.materialRequirementSets.begin(),
+              output.materialRequirementSets.end(),
+              material_requirements::Definition{});
     std::fill(output.itemDetails.begin(), output.itemDetails.end(), items::details::Definition{});
+    std::fill(
+        output.socketPlugRules.begin(), output.socketPlugRules.end(), items::socket_plugs::Rule{});
+    std::fill(
+        output.socketPlugPools.begin(), output.socketPlugPools.end(), items::socket_plugs::Pool{});
+    std::fill(output.socketPlugMembers.begin(),
+              output.socketPlugMembers.end(),
+              items::socket_plugs::Member{});
     std::fill(output.inventoryBuckets.begin(),
               output.inventoryBuckets.end(),
               inventory::buckets::Descriptor{});
@@ -93,7 +104,13 @@ bool expected_size(const records::DomainCounts& counts, std::uint64_t& size) noe
     size = sizeof(records::Header);
     return add_records(counts.named, sizeof(records::NamedRecord), size)
            && add_records(counts.items, sizeof(records::ItemRecord), size)
+           && add_records(counts.collectibles, sizeof(records::CollectibleRecord), size)
+           && add_records(
+               counts.materialRequirementSets, sizeof(records::MaterialRequirementSetRecord), size)
            && add_records(counts.itemDetails, sizeof(records::ItemDetailRecord), size)
+           && add_records(counts.socketPlugRules, sizeof(records::SocketPlugRuleRecord), size)
+           && add_records(counts.socketPlugPools, sizeof(records::SocketPlugPoolRecord), size)
+           && add_records(counts.socketPlugMembers, sizeof(records::SocketPlugMemberRecord), size)
            && add_records(counts.inventoryBuckets, sizeof(records::InventoryBucketRecord), size)
            && add_records(counts.socketEntryLists, sizeof(records::SocketEntryListRecord), size)
            && add_records(counts.socketEntryTables, sizeof(records::SocketEntryTableRecord), size)
@@ -123,8 +140,24 @@ bool read_payload(HANDLE file,
     valid =
         valid && read_domain<records::ItemRecord>(file, output.items.first(counts.items), checksum);
     valid = valid
+            && read_domain<records::CollectibleRecord>(
+                file, output.collectibles.first(counts.collectibles), checksum);
+    valid =
+        valid
+        && read_domain<records::MaterialRequirementSetRecord>(
+            file, output.materialRequirementSets.first(counts.materialRequirementSets), checksum);
+    valid = valid
             && read_domain<records::ItemDetailRecord>(
                 file, output.itemDetails.first(counts.itemDetails), checksum);
+    valid = valid
+            && read_domain<records::SocketPlugRuleRecord>(
+                file, output.socketPlugRules.first(counts.socketPlugRules), checksum);
+    valid = valid
+            && read_domain<records::SocketPlugPoolRecord>(
+                file, output.socketPlugPools.first(counts.socketPlugPools), checksum);
+    valid = valid
+            && read_domain<records::SocketPlugMemberRecord>(
+                file, output.socketPlugMembers.first(counts.socketPlugMembers), checksum);
     valid = valid
             && read_domain<records::InventoryBucketRecord>(
                 file, output.inventoryBuckets.first(counts.inventoryBuckets), checksum);
@@ -174,7 +207,12 @@ bool read_payload(HANDLE file,
         constants,
         output.named.first(counts.named),
         output.items.first(counts.items),
+        output.collectibles.first(counts.collectibles),
+        output.materialRequirementSets.first(counts.materialRequirementSets),
         output.itemDetails.first(counts.itemDetails),
+        output.socketPlugRules.first(counts.socketPlugRules),
+        output.socketPlugPools.first(counts.socketPlugPools),
+        output.socketPlugMembers.first(counts.socketPlugMembers),
         output.inventoryBuckets.first(counts.inventoryBuckets),
         output.socketEntryLists.first(counts.socketEntryLists),
         output.socketEntryTables.first(counts.socketEntryTables),

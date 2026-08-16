@@ -68,6 +68,14 @@ void mix_sockets(std::uint64_t& hash, const account::inventory::Sockets& sockets
     }
 }
 
+/** Mixes the installed-detail inputs shared by equipped and unequipped authored items. */
+void mix_item(std::uint64_t& hash, const account::inventory::Item& item) noexcept {
+    // SOIDs, quantity, gates and secrets stay outside build identity.
+    mix_value(hash, item.definitionHash);
+    mix_value(hash, static_cast<std::uint32_t>(item.level));
+    mix_sockets(hash, item.sockets);
+}
+
 /**
  * Mixes one character's 5 selected subclass entries.
  * The ability bucket rows are keyed by these, so a changed pick must rebuild.
@@ -98,10 +106,13 @@ std::uint64_t configured_hash(const AccountState& accountState) noexcept {
                 continue;
             }
             mix_byte(hash, kPresentItemMarker);
-            // SOIDs, quantity, gates and secrets stay outside build identity.
-            mix_value(hash, item->definitionHash);
-            mix_value(hash, static_cast<std::uint32_t>(item->level));
-            mix_sockets(hash, item->sockets);
+            mix_item(hash, *item);
+        }
+        static_assert(account::inventory::kCharacterItemCapacity
+                      <= (std::numeric_limits<std::uint8_t>::max)());
+        mix_byte(hash, static_cast<std::uint8_t>(character.inventory.count));
+        for (std::size_t itemIndex = 0; itemIndex < character.inventory.count; ++itemIndex) {
+            mix_item(hash, character.inventory.values[itemIndex]);
         }
     }
     return hash;

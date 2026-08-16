@@ -18,9 +18,14 @@ bool staging::same_resident(const ResidentObject& left, const ResidentObject& ri
  */
 bool staging::same_state(const SessionState& left, const SessionState& right) noexcept {
     if (!valid(left) || !valid(right) || left.family4RootSoid != right.family4RootSoid
+        || left.family3RootSoid != right.family3RootSoid
         || left.family4Version != right.family4Version
+        || left.family3Version != right.family3Version
+        || left.family0Version != right.family0Version
+        || left.family0Character != right.family0Character
         || left.family4ResidentCount != right.family4ResidentCount
-        || left.family3Phase != right.family3Phase || left.family4Active != right.family4Active) {
+        || left.family3Phase != right.family3Phase || left.family4Active != right.family4Active
+        || left.family3Active != right.family3Active || left.family0Active != right.family0Active) {
         return false;
     }
     for (std::size_t index = 0; index < left.family4Residents.size(); ++index) {
@@ -67,15 +72,17 @@ bool stage_family4_snapshot(const SessionState& before,
         || family.flags != middleware::queuez::kFullSnapshotFlag || family.objects.empty()
         || family.objects.size() > kResidentCapacity
         || family.objects.size()
-               > static_cast<std::size_t>((std::numeric_limits<std::uint8_t>::max)())) {
+               > static_cast<std::size_t>((std::numeric_limits<std::uint16_t>::max)())) {
         return false;
     }
 
-    SessionState candidate{};
+    // The Family-3 full snapshot may have been appended immediately before its Family-4 companion.
+    // Preserve that independently published ladder while replacing only the Family-4 manifest.
+    SessionState candidate = before;
+    candidate.family4Residents = {};
     candidate.family4RootSoid = family.rootSoid;
     candidate.family4Version = family.version;
-    candidate.family4ResidentCount = static_cast<std::uint8_t>(family.objects.size());
-    candidate.family3Phase = before.family3Phase;
+    candidate.family4ResidentCount = static_cast<std::uint16_t>(family.objects.size());
     candidate.family4Active = true;
     for (std::size_t index = 0; index < family.objects.size(); ++index) {
         const middleware::queuez::Object& object = family.objects[index];
@@ -90,6 +97,9 @@ bool stage_family4_snapshot(const SessionState& before,
         candidate.family4Residents[index] = ResidentObject{object.version, object.id};
     }
     if (candidate.family4Residents.front().objectSoid != family.rootSoid) {
+        return false;
+    }
+    if (!valid(candidate)) {
         return false;
     }
     if (before.family4Active) {
@@ -131,7 +141,7 @@ bool stage_family0_subscription(const SessionState& before,
     return true;
 }
 
-/** Stages the measured Family-3 subscription policy: full first, then response-only. */
+/** Stages the measured Family-3 subscription reset: full first, then response-only. */
 bool stage_family3_subscription(const SessionState& before,
                                 const middleware::queuez::Subscription& subscription,
                                 bool& publish,
@@ -142,20 +152,34 @@ bool stage_family3_subscription(const SessionState& before,
         || subscription.familyRootSoid == 0) {
         return false;
     }
-    if (before.family4Active && subscription.familyRootSoid != before.family4RootSoid) {
+    if ((before.family4Active && subscription.familyRootSoid != before.family4RootSoid)
+        || (before.family3Active && subscription.familyRootSoid != before.family3RootSoid)) {
         return false;
+    }
+    if (!before.family3Active) {
+        // Publication is transactional: the caller installs this seed only after the full frame is
+        // copied.  Until then the before-image remains inactive and version zero has no meaning.
+        publish = true;
+        after.family3RootSoid = subscription.familyRootSoid;
+        after.family3Version = kInitialFamilyVersion;
+        after.family3Active = true;
+        return valid(after);
     }
     if (before.family3Phase == Family3Phase::normal) {
         publish = true;
-        return true;
+        // An explicit subscription establishes a fresh client-side store.  Its current full body is
+        // version zero even when the prior subscribed store had consumed incrementals.
+        after.family3Version = kInitialFamilyVersion;
+        return valid(after);
     }
     if (!before.family4Active) {
         return false;
     }
     if (before.family3Phase == Family3Phase::publishOnce) {
         publish = true;
+        after.family3Version = kInitialFamilyVersion;
         after.family3Phase = Family3Phase::responseOnly;
-        return true;
+        return valid(after);
     }
     return before.family3Phase == Family3Phase::responseOnly;
 }
@@ -164,7 +188,8 @@ void stage_unsubscription(const SessionState& before,
                           std::uint64_t familyRootSoid,
                           SessionState& after) noexcept {
     after = before;
-    if (before.family4Active && familyRootSoid == before.family4RootSoid) {
+    if ((before.family4Active && familyRootSoid == before.family4RootSoid)
+        || (before.family3Active && familyRootSoid == before.family3RootSoid)) {
         after = {};
     }
 }

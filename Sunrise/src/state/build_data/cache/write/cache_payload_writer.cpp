@@ -65,7 +65,13 @@ bool payload_checksum(records::Domains domains, std::uint64_t& checksum) noexcep
     checksum = records::checksum_value(records::kChecksumOffsetBasis, domains.constants);
     return checksum_domain<records::NamedRecord>(domains.named, checksum)
            && checksum_domain<records::ItemRecord>(domains.items, checksum)
+           && checksum_domain<records::CollectibleRecord>(domains.collectibles, checksum)
+           && checksum_domain<records::MaterialRequirementSetRecord>(
+               domains.materialRequirementSets, checksum)
            && checksum_domain<records::ItemDetailRecord>(domains.itemDetails, checksum)
+           && checksum_domain<records::SocketPlugRuleRecord>(domains.socketPlugRules, checksum)
+           && checksum_domain<records::SocketPlugPoolRecord>(domains.socketPlugPools, checksum)
+           && checksum_domain<records::SocketPlugMemberRecord>(domains.socketPlugMembers, checksum)
            && checksum_domain<records::InventoryBucketRecord>(domains.inventoryBuckets, checksum)
            && checksum_domain<records::SocketEntryListRecord>(domains.socketEntryLists, checksum)
            && checksum_domain<records::SocketEntryTableRecord>(domains.socketEntryTables, checksum)
@@ -87,7 +93,13 @@ bool payload_checksum(records::Domains domains, std::uint64_t& checksum) noexcep
 bool write_payload(HANDLE file, records::Domains domains) noexcept {
     return write_domain<records::NamedRecord>(file, domains.named)
            && write_domain<records::ItemRecord>(file, domains.items)
+           && write_domain<records::CollectibleRecord>(file, domains.collectibles)
+           && write_domain<records::MaterialRequirementSetRecord>(file,
+                                                                  domains.materialRequirementSets)
            && write_domain<records::ItemDetailRecord>(file, domains.itemDetails)
+           && write_domain<records::SocketPlugRuleRecord>(file, domains.socketPlugRules)
+           && write_domain<records::SocketPlugPoolRecord>(file, domains.socketPlugPools)
+           && write_domain<records::SocketPlugMemberRecord>(file, domains.socketPlugMembers)
            && write_domain<records::InventoryBucketRecord>(file, domains.inventoryBuckets)
            && write_domain<records::SocketEntryListRecord>(file, domains.socketEntryLists)
            && write_domain<records::SocketEntryTableRecord>(file, domains.socketEntryTables)

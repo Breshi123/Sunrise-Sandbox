@@ -129,7 +129,7 @@ LoadStatus load(const wchar_t* path,
     count = header.rowCount;
     const std::span<const Row> occupied = rows.first(count);
     Fingerprint computed{};
-    if (!valid(occupied) || !fingerprint::rows(occupied, computed)
+    if (!valid(occupied) || !fingerprint::catalog(occupied, directoryFingerprint, computed)
         || computed != header.buildFingerprint) {
         clear_rows(rows, count);
         return LoadStatus::invalid;

@@ -8,6 +8,8 @@
 #include "../../hash_names/hash_name_catalog.h"
 #include "../../inventory/buckets/inventory_bucket_catalog.h"
 #include "../../items/details/item_detail_catalog.h"
+#include "../../items/socket_plugs/socket_plug_catalog.h"
+#include "../../material_requirements/material_requirement_catalog.h"
 #include "../../progressions/progression_catalog.h"
 #include "../../scenarios/scenario_catalog.h"
 #include "../../socket_entry_lists/socket_entry_list_catalog.h"
@@ -65,10 +67,30 @@ namespace {
     return left.bucketId < right.bucketId;
 }
 
+/** @return Item then lane order, which is the order the rules are published in. */
+[[nodiscard]] bool socket_plug_rule_less(const items::socket_plugs::Rule& left,
+                                         const items::socket_plugs::Rule& right) noexcept {
+    return left.itemDefinitionIndex < right.itemDefinitionIndex
+           || (left.itemDefinitionIndex == right.itemDefinitionIndex && left.lane < right.lane);
+}
+
 /** @return Native definition-index order for item rows. */
 [[nodiscard]] bool item_less(const items::Definition& left,
                              const items::Definition& right) noexcept {
     return left.definitionIndex < right.definitionIndex;
+}
+
+/** @return Native collectible-index order. */
+[[nodiscard]] bool collectible_less(const collectibles::Definition& left,
+                                    const collectibles::Definition& right) noexcept {
+    return left.collectibleIndex < right.collectibleIndex;
+}
+
+/** @return Native requirement-set ordinal order. */
+[[nodiscard]] bool
+material_requirement_less(const material_requirements::Definition& left,
+                          const material_requirements::Definition& right) noexcept {
+    return left.requirementSetIndex < right.requirementSetIndex;
 }
 
 /** @return Native-index order for socket-list rows. */
@@ -112,7 +134,12 @@ template <typename Value, typename Less>
 /** @return True when every count fits the fixed storage. */
 [[nodiscard]] bool counts_fit(MutableDomains domains, const DomainCounts& counts) noexcept {
     return counts.named <= domains.named.size() && counts.items <= domains.items.size()
+           && counts.collectibles <= domains.collectibles.size()
+           && counts.materialRequirementSets <= domains.materialRequirementSets.size()
            && counts.itemDetails <= domains.itemDetails.size()
+           && counts.socketPlugRules <= domains.socketPlugRules.size()
+           && counts.socketPlugPools <= domains.socketPlugPools.size()
+           && counts.socketPlugMembers <= domains.socketPlugMembers.size()
            && counts.inventoryBuckets <= domains.inventoryBuckets.size()
            && counts.socketEntryLists <= domains.socketEntryLists.size()
            && counts.socketEntryTables <= domains.socketEntryTables.size()
@@ -138,12 +165,24 @@ bool canonicalize(MutableDomains domains, const DomainCounts& counts) noexcept {
     }
     const auto named = domains.named.first(counts.named);
     const auto items = domains.items.first(counts.items);
+    const auto collectibles = domains.collectibles.first(counts.collectibles);
+    const auto materialRequirementSets =
+        domains.materialRequirementSets.first(counts.materialRequirementSets);
     const auto itemDetails = domains.itemDetails.first(counts.itemDetails);
+    const auto socketPlugRules = domains.socketPlugRules.first(counts.socketPlugRules);
     const auto inventoryBuckets = domains.inventoryBuckets.first(counts.inventoryBuckets);
     const auto socketEntryLists = domains.socketEntryLists.first(counts.socketEntryLists);
     std::sort(named.begin(), named.end(), named_less);
     std::sort(items.begin(), items.end(), item_less);
+    std::sort(collectibles.begin(), collectibles.end(), collectible_less);
+    std::sort(
+        materialRequirementSets.begin(), materialRequirementSets.end(), material_requirement_less);
     std::sort(itemDetails.begin(), itemDetails.end(), detail_less);
+    // Rules are published in exact item/lane order. Pools and members are an indexed relation,
+    // so reordering either would invalidate every pool reference and range.
+    if (!std::is_sorted(socketPlugRules.begin(), socketPlugRules.end(), socket_plug_rule_less)) {
+        return false;
+    }
     std::sort(inventoryBuckets.begin(), inventoryBuckets.end(), bucket_less);
     const auto abilityBuckets = domains.abilityBuckets.first(counts.abilityBuckets);
     const auto socketEntryTables = domains.socketEntryTables.first(counts.socketEntryTables);
@@ -158,14 +197,22 @@ bool canonicalize(MutableDomains domains, const DomainCounts& counts) noexcept {
 /** Checks the structure rules, the sort order, and every cross-domain item reference. */
 bool valid_domains(Domains domains) noexcept {
     if (domains.constants.extracted != 1U || domains.named.empty() || domains.items.empty()
+        || domains.collectibles.empty() || domains.materialRequirementSets.empty()
+        || domains.socketPlugRules.empty() || domains.socketPlugPools.empty()
         || domains.inventoryBuckets.empty() || domains.socketEntryLists.empty()
         || !std::all_of(domains.named.begin(), domains.named.end(), valid_name)
         || !strictly_ordered(domains.named, named_less) || !items::valid(domains.items)
+        || !collectibles::valid(domains.collectibles)
+        || !strictly_ordered(domains.collectibles, collectible_less)
+        || !material_requirements::valid(domains.materialRequirementSets)
+        || !strictly_ordered(domains.materialRequirementSets, material_requirement_less)
         || !inventory::buckets::valid(domains.inventoryBuckets)
         || !strictly_ordered(domains.inventoryBuckets, bucket_less)
         || !socket_entry_lists::valid(domains.socketEntryLists)
         || !socket_entry_lists::valid_entry_tables(domains.socketEntryTables)
         || !strictly_ordered(domains.itemDetails, detail_less)
+        || !items::socket_plugs::valid(
+            domains.socketPlugRules, domains.socketPlugPools, domains.socketPlugMembers)
         || !abilities::valid(domains.abilityBuckets)
         || !strictly_ordered(domains.abilityBuckets, ability_less)
         || !progressions::valid(domains.progressions)
@@ -192,13 +239,30 @@ bool valid_domains(Domains domains) noexcept {
             return false;
         }
     }
+    for (const material_requirements::Definition& definition : domains.materialRequirementSets) {
+        for (std::size_t index = 0; index < definition.requirementCount; ++index) {
+            const std::uint16_t itemIndex = definition.requirements[index].itemDefinitionIndex;
+            if (static_cast<std::size_t>(itemIndex) >= domains.items.size()
+                || domains.items[itemIndex].definitionIndex != itemIndex) {
+                return false;
+            }
+        }
+    }
     for (std::size_t index = 0; index < domains.socketEntryLists.size(); ++index) {
         if (domains.socketEntryLists[index].definitionIndex != index) {
             return false;
         }
     }
-    return valid_item_detail_links(
-        domains.itemDetails, domains.items, domains.inventoryBuckets, domains.socketEntryLists);
+    return valid_collectible_links(domains.collectibles, domains.items)
+           && valid_item_detail_links(domains.itemDetails,
+                                      domains.items,
+                                      domains.inventoryBuckets,
+                                      domains.socketEntryLists)
+           && valid_socket_plug_links(domains.socketPlugRules,
+                                      domains.socketPlugPools,
+                                      domains.socketPlugMembers,
+                                      domains.items,
+                                      domains.itemDetails);
 }
 
 } // namespace sunrise::state::build_data::cache::records

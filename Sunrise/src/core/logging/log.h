@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <span>
 #include <string_view>
 
 namespace sunrise::core::log {
@@ -62,6 +63,18 @@ void write_elapsed(Channel channel,
                    std::string_view event,
                    unsigned long long startedTick,
                    std::string_view result) noexcept;
+
+/**
+ * Appends bytes as uppercase hex to a line that already holds its key prefix.
+ * Stops before the first pair that would not fit, so a long payload truncates.
+ * @param line Line storage holding the prefix.
+ * @param length Bytes already written, raised by two for each encoded byte.
+ * @param bytes Borrowed payload to encode.
+ * @return True when every byte fit.
+ */
+bool append_hex(std::span<char> line,
+                std::size_t& length,
+                std::span<const std::byte> bytes) noexcept;
 
 /**
  * Reports whether any thread is inside a sink write.

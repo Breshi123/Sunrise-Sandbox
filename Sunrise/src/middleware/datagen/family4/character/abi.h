@@ -15,6 +15,12 @@ inline constexpr std::size_t kIdentityOffset = 8;
 inline constexpr std::size_t kNextInventorySerialOffset = 48;
 /** The first fixed inventory row begins at native byte 56. */
 inline constexpr std::size_t kInventoryItemsOffset = 56;
+/** Four opaque bytes after inventory rows begin at native byte 11,256. */
+inline constexpr std::size_t kInventoryChangeUnknownOffset = 11256;
+/** The transient inventory-change header begins at native byte 11,260. */
+inline constexpr std::size_t kInventoryChangeHeaderOffset = 11260;
+/** The first 12-byte inventory-change record begins at native byte 11,264. */
+inline constexpr std::size_t kInventoryChangeRecordsOffset = 11264;
 /** Equipped instance SOIDs begin after all fixed inventory rows at native byte 11,456. */
 inline constexpr std::size_t kEquippedInstancesOffset = 11456;
 /** The stored equipment summary begins at native byte 11,616. */
@@ -49,6 +55,11 @@ static_assert(offsetof(layout::Object, characterSoid) == kCharacterSoidOffset);
 static_assert(offsetof(layout::Object, identity) == kIdentityOffset);
 static_assert(offsetof(layout::Object, nextInventorySerial) == kNextInventorySerialOffset);
 static_assert(offsetof(layout::Object, inventoryItems) == kInventoryItemsOffset);
+static_assert(offsetof(layout::Object, inventoryChangeUnknown) == kInventoryChangeUnknownOffset);
+static_assert(offsetof(layout::Object, inventoryChanges) == kInventoryChangeHeaderOffset);
+static_assert(offsetof(layout::InventoryChangeList, records)
+                  + offsetof(layout::Object, inventoryChanges)
+              == kInventoryChangeRecordsOffset);
 static_assert(offsetof(layout::Object, equippedInstanceSoids) == kEquippedInstancesOffset);
 static_assert(offsetof(layout::Object, equipmentSummary) == kEquipmentSummaryOffset);
 static_assert(offsetof(layout::Object, inventoryGateDefinitionIndex)

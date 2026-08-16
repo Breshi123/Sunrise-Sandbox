@@ -1,10 +1,17 @@
 #include "web_service_runtime.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
+#include <limits>
+#include <string_view>
 
 #include "../../core/logging/log.h"
+#include "../../middleware/encoding/bit_reader.h"
+#include "../../middleware/encoding/byte_order.h"
+#include "../../middleware/web_service/messages/opcode1901.h"
 #include "../../middleware/web_service/messages/opcode205.h"
 #include "../../middleware/web_service/messages/opcode206.h"
 #include "../../middleware/web_service/messages/opcode501_codec.h"
@@ -12,29 +19,69 @@
 #include "../../middleware/web_service/messages/opcode504.h"
 #include "../../middleware/web_service/messages/opcode601/opcode601_codec.h"
 #include "../../middleware/web_service/messages/opcode901/opcode901_codec.h"
+#include "../../middleware/web_service/messages/opcode903.h"
 #include "../../middleware/web_service/web_service_envelope.h"
 #include "../../state/account/account_state.h"
+#include "../../state/build_data/runtime.h"
 #include "../../state/runtime/runtime.h"
 #include "opcode_routes.h"
+#include "web_service_actions.h"
 
 namespace sunrise::server::web_service {
 
-/** One log line carries the opcode and its fixed prefix. */
+/** One ordinary event line carries an opcode and its fixed prefix. */
 constexpr std::size_t kOpcodeLineCapacity = 64;
+/** A request trace keeps enough payload to identify an item-action descriptor. */
+constexpr std::size_t kRequestPayloadTraceBytes = 192;
+/** Marks a trace that stopped at the cap, so a short hex string is not read as a short payload. */
+constexpr std::string_view kTruncated = " truncated=1";
+/** Web Service opcode used by the Character screen's Equip action. */
+constexpr std::uint16_t kEquipOpcode = 403;
+/** Web Service opcode used by the Character screen's Unequip action. */
+constexpr std::uint16_t kUnequipOpcode = 404;
+/** Web Service opcode used by item-state actions such as finisher Favorite. */
+constexpr std::uint16_t kItemStateOpcode = 406;
+/** Web Service opcode used by the Character screen's Dismantle action. */
+constexpr std::uint16_t kItemDismantleOpcode = 402;
+/** Web Service opcode used by Collections to create one item instance. */
+constexpr std::uint16_t kItemAcquisitionOpcode = 1820;
+/** The mutation variant's first alternative is the empty one, so index zero prepared nothing. */
+constexpr std::size_t kNoMutation = 0;
+/**
+ * Logical status of a refused action. The descriptor biases logical zero to the wire success the
+ * Client expects, so any other logical value reports a refusal. Its five bits hold no error
+ * taxonomy, so one code covers every reason and the log line names the actual one.
+ */
+constexpr std::int32_t kRefusedStatus = 1;
 
 /**
- * Logs which Web Service opcode arrived. One svc-10 frame looks like any other in the log, and
- * the opcodes the Client sends are what drive its queuez state machine.
- * @param opcode Parsed wire opcode.
+ * Logs the Web Service opcode and a bounded payload trace.
+ * One svc-10 frame looks like any other, and the opcode drives the client's queuez state machine.
+ * @param message Parsed request envelope and borrowed payload.
  */
-void report_opcode(std::uint32_t opcode) noexcept {
-    std::array<char, kOpcodeLineCapacity> line{};
-    const int written =
-        std::snprintf(line.data(), line.size(), "ev=ws stage=request opcode=%u", opcode);
-    if (written > 0) {
-        core::log::write(core::log::Channel::server,
-                         core::log::Level::info,
-                         {line.data(), static_cast<std::size_t>(written)});
+void report_request(const middleware::web_service::Message& message) noexcept {
+    std::array<char, core::log::kLineCapacity> line{};
+    const int prefix =
+        std::snprintf(line.data(),
+                      line.size(),
+                      "ev=ws stage=request opcode=%u transaction=%u payload_bytes=%zu payload_hex=",
+                      static_cast<unsigned>(message.opcode),
+                      static_cast<unsigned>(message.transactionId),
+                      message.payload.size());
+    if (prefix <= 0 || static_cast<std::size_t>(prefix) >= line.size()) {
+        return;
+    }
+
+    std::size_t length = static_cast<std::size_t>(prefix);
+    const std::size_t traced =
+        (std::min)(message.payload.size(), static_cast<std::size_t>(kRequestPayloadTraceBytes));
+    (void)core::log::append_hex(line, length, message.payload.first(traced));
+    if (traced != message.payload.size() && length + kTruncated.size() < line.size()) {
+        std::memcpy(line.data() + length, kTruncated.data(), kTruncated.size());
+        length += kTruncated.size();
+    }
+    if (length != 0) {
+        core::log::write(core::log::Channel::server, core::log::Level::info, {line.data(), length});
     }
 }
 
@@ -103,46 +150,6 @@ constexpr std::int32_t kPurchaseRefusedCode = 1;
         written);
 }
 
-/** One line carries the picked id and whether the selection moved. */
-constexpr std::size_t kSelectLineCapacity = 96;
-
-/**
- * Records the player's character pick, which arrives nowhere else.
- * A bad or unknown id leaves the selection alone. The reply is the status pair either way. The
- * Family-4 object move follows this call, and the family-zero pair after it.
- * @param message Parsed select-character request.
- * @param outcome Gets the picked key once the selection has moved in State.
- */
-void select_character(const middleware::web_service::Message& message, Outcome& outcome) noexcept {
-    middleware::web_service::messages::opcode504::Request picked;
-    if (!middleware::web_service::messages::opcode504::parse_request(message, picked)) {
-        core::log::write(
-            core::log::Channel::server, core::log::Level::warn, "ev=ws504 stage=parse result=fail");
-        return;
-    }
-    bool changed = false;
-    if (!state::set_selected_character(picked.characterSoid, changed)) {
-        core::log::write(core::log::Channel::server,
-                         core::log::Level::warn,
-                         "ev=ws504 stage=select result=unknown");
-        return;
-    }
-    outcome.hasSelectedCharacter = true;
-    outcome.selectedCharacterSoid = picked.characterSoid;
-
-    std::array<char, kSelectLineCapacity> line{};
-    const int written = std::snprintf(line.data(),
-                                      line.size(),
-                                      "ev=ws504 stage=select result=ok soid=0x%llX changed=%u",
-                                      static_cast<unsigned long long>(picked.characterSoid),
-                                      static_cast<unsigned>(changed));
-    if (written > 0) {
-        core::log::write(core::log::Channel::server,
-                         core::log::Level::info,
-                         {line.data(), static_cast<std::size_t>(written)});
-    }
-}
-
 /**
  * Answers a request whose own codec refused with the bare correlated echo.
  * The Client matches on the echoed transaction id. A missing body is worse than a thin one. It
@@ -183,11 +190,12 @@ bool consume(std::span<const std::byte> request,
 }
 
 /**
- * Parses one request, encodes its response, and publishes checked side effects last.
+ * Parses one request, prepares any action it names, and encodes the reply that reports it.
  * @param request Whole decrypted svc-10 body.
  * @param response Svc-11 response-body storage owned by the caller.
  * @param written Gets the encoded response-body size, or zero when the header does not parse.
- * @param outcome Gets a valid family selector only after the response is encoded.
+ * @param outcome Gets the prepared action for the caller to publish, and is left empty when
+ * the action was refused or the reply could not be encoded.
  * @return False only when the envelope header does not parse.
  */
 bool consume(std::span<const std::byte> request,
@@ -202,7 +210,7 @@ bool consume(std::span<const std::byte> request,
             core::log::Channel::server, core::log::Level::warn, "ev=ws stage=parse result=fail");
         return false;
     }
-    report_opcode(message.opcode);
+    report_request(message);
 
     if (message.opcode == middleware::web_service::messages::opcode205::kOpcode) {
         const auto investment = state::investment_snapshot();
@@ -261,21 +269,48 @@ bool consume(std::span<const std::byte> request,
         message.opcode == middleware::web_service::messages::opcode206::kOpcode
         && middleware::web_service::messages::opcode206::parse_request(message, subscription);
 
+    // The action runs before its reply is encoded, because the reply reports whether it worked.
+    // Each action fills the outcome only once it has prepared its whole transition, so an outcome
+    // still empty after one ran is that action refusing the request. Nothing is published here:
+    // both the prepared mutation and the subscription are handed back for the caller to publish
+    // once the whole response is framed.
+    bool dispatched = true;
+    if (message.opcode == middleware::web_service::messages::opcode504::kOpcode) {
+        select_character(message, outcome);
+    } else if (message.opcode == kItemDismantleOpcode) {
+        dismantle_item(message, outcome);
+    } else if (message.opcode == kEquipOpcode) {
+        mutate_equipment(message, false, outcome);
+    } else if (message.opcode == kUnequipOpcode) {
+        mutate_equipment(message, true, outcome);
+    } else if (message.opcode == middleware::web_service::messages::opcode903::kOpcode) {
+        mutate_socket_plug(message, outcome);
+    } else if (message.opcode == middleware::web_service::messages::opcode1901::kOpcode) {
+        mutate_equipped_socket_plug(message, outcome);
+    } else if (message.opcode == kItemStateOpcode) {
+        mutate_item_state(message, outcome);
+    } else if (message.opcode == kItemAcquisitionOpcode) {
+        acquire_item(message, outcome);
+    } else {
+        dispatched = false;
+    }
+    const bool prepared = outcome.hasSelectedCharacter || outcome.mutation.index() != kNoMutation;
+
     middleware::web_service::ResponseShape shape{};
     resolve_response_shape(message.opcode, shape);
-    if (!middleware::web_service::encode_response(
-            message, shape, middleware::web_service::StatusResponse{}, response, written)) {
+    middleware::web_service::StatusResponse status{};
+    if (dispatched && !prepared) {
+        status.code = kRefusedStatus;
+    }
+    if (!middleware::web_service::encode_response(message, shape, status, response, written)) {
+        // The echo carries no status, so nothing may be published against it.
+        outcome = {};
         return encode_echo(message, response, written);
     }
     if (subscribes) {
         // Publish the subscription only after its correlated response is complete.
         outcome.hasSubscription = true;
         outcome.subscription = subscription;
-        return true;
-    }
-    if (message.opcode == middleware::web_service::messages::opcode504::kOpcode) {
-        // The selection is State, not a response field, so it publishes after the reply encodes.
-        select_character(message, outcome);
     }
     return true;
 }

@@ -28,6 +28,18 @@ struct Equipped {
     std::size_t laneCount{};
 };
 
+/** Selects class-qualified art when present, otherwise the definition's generic arrangement. */
+[[nodiscard]] constexpr std::uint16_t
+select_art_arrangement(const details::Definition& detail,
+                       state::CharacterClass characterClass) noexcept {
+    const std::size_t classSlot = static_cast<std::size_t>(characterClass) + 1U;
+    if (classSlot < detail.artArrangementIndices.size()
+        && detail.artArrangementIndices[classSlot] != details::kUnavailableArtIndex) {
+        return detail.artArrangementIndices[classSlot];
+    }
+    return detail.artArrangementIndices.front();
+}
+
 /**
  * Resolves one equipped instance to its detail and the plugs its sockets hold.
  * The resolver has already applied the authored or native-default socket policy, so a lane that
@@ -47,10 +59,12 @@ void apply_sentinels(layout::Appearance& appearance) noexcept;
 /**
  * Fills each equipped render row with its instance, definition, art and material pairs.
  * @param instances Resolved item instances belonging to one character.
+ * @param characterClass Class whose art rows are selected when a definition carries them.
  * @param appearance Appearance block receiving the render rows.
  * @return True when every instance addresses a render row.
  */
 [[nodiscard]] bool apply_render(const family4::loadout::ResolvedInstances& instances,
+                                state::CharacterClass characterClass,
                                 layout::Appearance& appearance) noexcept;
 
 /**

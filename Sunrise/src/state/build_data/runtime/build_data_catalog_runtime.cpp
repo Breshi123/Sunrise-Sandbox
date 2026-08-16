@@ -2,10 +2,13 @@
 
 #include "../../content/content_catalog.h"
 #include "../abilities/ability_bucket_catalog.h"
+#include "../collectibles/collectible_catalog.h"
 #include "../constants/investment_constant_catalog.h"
 #include "../hash_names/hash_name_catalog.h"
 #include "../inventory/buckets/inventory_bucket_catalog.h"
 #include "../items/details/item_detail_catalog.h"
+#include "../items/socket_plugs/socket_plug_catalog.h"
+#include "../material_requirements/material_requirement_catalog.h"
 #include "../progressions/progression_catalog.h"
 #include "../runtime.h"
 #include "../scenarios/scenario_catalog.h"
@@ -297,8 +300,11 @@ void clear_catalogs() noexcept {
     content::clear();
     named::clear();
     items::clear();
+    collectibles::clear();
+    material_requirements::clear();
     items::details::clear();
     details::clear();
+    items::socket_plugs::clear();
     inventory::buckets::clear();
     socket_entry_lists::clear();
     rollback_ability_publication();

@@ -23,8 +23,10 @@ namespace family4_datagen = middleware::datagen::family4;
 /**
  * Publishes the staged family metadata once every needed object is done.
  * @param subscription Family id the Client picked.
+ * @param objectCount Descriptors staged for this family.
  * @param compressedExtent Size of the used prefix of the sealed buffer.
  * @param reservation Cleanup extent carried over from any prior live snapshot.
+ * @param staged Descriptors and clear extents built by the caller.
  * @param output Gets the family snapshot only on success.
  * @return True when the staged descriptors pass the ownership check.
  */
@@ -60,6 +62,11 @@ bool prepare(Scratch& scratch,
     const auto rawStorage = std::span(scratch.plaintext).subspan(reservation.rawWriteOffset);
     if (family4_datagen::account::layout::kObjectSize > rawStorage.size()) {
         return report_failure("account_storage");
+    }
+    // Package extraction may have completed after State initialization on a first cache build.
+    // Canonicalize profile action-source identities immediately before the first Family-4 image.
+    if (!state::ensure_profile_item_identities()) {
+        return report_failure("profile_identities");
     }
     const state::AccountState account = state::account_snapshot();
     if (!state::account::valid(account)) {
@@ -128,7 +135,8 @@ bool prepare(Scratch& scratch,
     for (std::size_t characterIndex = 0; characterIndex < account.characterCount;
          ++characterIndex) {
         family4_datagen::loadout::ResolvedInstances instances{};
-        if (!family4_datagen::loadout::resolve_instances(account, characterIndex, instances)) {
+        if (!family4_datagen::loadout::resolve_owned_instances(
+                account, characterIndex, instances)) {
             return report_failure("loadout");
         }
         if (instances.itemCount != 0
@@ -142,6 +150,18 @@ bool prepare(Scratch& scratch,
                              compressedExtent)) {
             return report_failure("items");
         }
+    }
+    // Profile rows with nonzero SOIDs are native action sources.  Their item residents follow all
+    // character-owned instances so the full-snapshot manifest remains deterministic.
+    if (!append_profile_items(scratch,
+                              rawStorage,
+                              itemInstanceObjectId,
+                              account,
+                              itemBaseIndex,
+                              staged,
+                              itemCursor,
+                              compressedExtent)) {
+        return report_failure("profile_items");
     }
 
     const std::size_t objectCount = itemBaseIndex + itemCursor;

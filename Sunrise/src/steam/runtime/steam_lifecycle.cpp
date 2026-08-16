@@ -4,6 +4,7 @@
 
 #include "../../client/hooks/bootflow/bootflow_texture_override.h"
 #include "../../client/hooks/egress/runtime.h"
+#include "../../client/hooks/package_trust/package_trust_bypass.h"
 #include "../../client/runtime/runtime.h"
 #include "../../core/logging/log.h"
 #include "../../core/runtime/core_runtime.h"
@@ -56,6 +57,16 @@ bool initialize(void* module) noexcept {
         return true;
     }
     if (!core::initialize(module)) {
+        ReleaseSRWLockExclusive(&g_lifecycleLock);
+        return false;
+    }
+    // Base generation (_0) packages register during bootload, before the first callback pump can
+    // run the ordinary main-image hook sweep. Package trust must therefore attach at Steam init.
+    if (!client::hooks::package_trust::install()) {
+        core::log::write(core::log::Channel::client,
+                         core::log::Level::error,
+                         "ev=steam_init stage=package_trust result=fail");
+        (void)core::shutdown();
         ReleaseSRWLockExclusive(&g_lifecycleLock);
         return false;
     }

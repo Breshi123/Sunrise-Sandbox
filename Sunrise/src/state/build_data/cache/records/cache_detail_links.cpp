@@ -1,11 +1,46 @@
+#include <algorithm>
+
 #include "../../items/details/item_detail_catalog.h"
+#include "../../items/socket_plugs/socket_plug_catalog.h"
 #include "validation.h"
 
 namespace sunrise::state::build_data::cache::records {
 
+/** Checks collectible ordinals and their optional links into the installed item table. */
+bool valid_collectible_links(std::span<const collectibles::Definition> collectibleDefinitions,
+                             std::span<const items::Definition> itemDefinitions) noexcept {
+    if (collectibleDefinitions.empty() || itemDefinitions.empty()
+        || !collectibles::valid(collectibleDefinitions)) {
+        return false;
+    }
+    for (std::size_t index = 0; index < collectibleDefinitions.size(); ++index) {
+        const collectibles::Definition& definition = collectibleDefinitions[index];
+        if (definition.collectibleIndex != index
+            || (definition.itemDefinitionIndex != collectibles::kUnavailableItemDefinitionIndex
+                && (definition.itemDefinitionIndex >= itemDefinitions.size()
+                    || itemDefinitions[definition.itemDefinitionIndex].definitionIndex
+                           != definition.itemDefinitionIndex))) {
+            return false;
+        }
+        for (std::size_t requirementIndex = 0;
+             requirementIndex < definition.materialRequirementCount;
+             ++requirementIndex) {
+            const collectibles::MaterialRequirement& requirement =
+                definition.materialRequirements[requirementIndex];
+            if (requirement.itemDefinitionIndex >= itemDefinitions.size()
+                || itemDefinitions[requirement.itemDefinitionIndex].definitionIndex
+                       != requirement.itemDefinitionIndex) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 /**
- * Checks every configured detail reference against the other numeric domains.
- * @param details Item details that already passed their own checks.
+ * Checks every supported detail reference against the other numeric domains.
+ * @param details Item
+ * details that already passed their own checks.
  * @param itemDefinitions Complete dense item rows.
  * @param inventoryBuckets Complete bucket-routing rows in bucket order.
  * @param socketEntryLists Complete dense socket-list rows.
@@ -25,7 +60,7 @@ bool valid_item_detail_links(
     if (!items::details::valid(details)) {
         return false;
     }
-    // The domain holds equipped items and the plugs they socket. Only the equipped rows can be
+    // The domain holds equippable items and the plugs they socket. Only the base rows can be
     // equipped, and the loadout resolver already requires that there, so it is not a domain rule.
     for (const items::details::Definition& detail : details) {
         if (detail.definitionIndex >= itemDefinitions.size()
@@ -41,6 +76,37 @@ bool valid_item_detail_links(
         }
     }
     return true;
+}
+
+/** Checks every socket target lane and allowed plug against the numeric item domains. */
+bool valid_socket_plug_links(std::span<const items::socket_plugs::Rule> rules,
+                             std::span<const items::socket_plugs::Pool> pools,
+                             std::span<const items::socket_plugs::Member> members,
+                             std::span<const items::Definition> itemDefinitions,
+                             std::span<const items::details::Definition> details) noexcept {
+    if (itemDefinitions.empty() || details.empty()
+        || !items::socket_plugs::valid(rules, pools, members)) {
+        return false;
+    }
+    for (const items::socket_plugs::Rule& rule : rules) {
+        if (rule.itemDefinitionIndex >= itemDefinitions.size()) {
+            return false;
+        }
+        const auto found = std::lower_bound(
+            details.begin(),
+            details.end(),
+            rule.itemDefinitionIndex,
+            [](const items::details::Definition& detail, std::uint16_t definitionIndex) {
+                return detail.definitionIndex < definitionIndex;
+            });
+        if (found == details.end() || found->definitionIndex != rule.itemDefinitionIndex
+            || rule.lane >= found->ordinarySocketCount) {
+            return false;
+        }
+    }
+    return std::all_of(members.begin(), members.end(), [&itemDefinitions](const auto member) {
+        return member < itemDefinitions.size();
+    });
 }
 
 } // namespace sunrise::state::build_data::cache::records

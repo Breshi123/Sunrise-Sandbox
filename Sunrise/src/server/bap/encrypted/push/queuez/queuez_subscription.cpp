@@ -1,6 +1,8 @@
 #include <array>
+#include <limits>
 
 #include "../../../../../core/logging/log.h"
+#include "../../../../../middleware/datagen/definitions.h"
 #include "../../../../../middleware/secure_channel/runtime.h"
 #include "../../../../../state/runtime/runtime.h"
 #include "../../queuez/queuez_state_validation.h"
@@ -79,6 +81,44 @@ namespace {
 
 } // namespace
 
+/** Appends one current full account snapshot at the peer's next Family-4 version. */
+bool append_account_resync_notification(Scratch& scratch,
+                                        const queuez::SessionState& before,
+                                        std::span<const std::byte, state::kAesKeySize> key,
+                                        std::array<std::byte, state::kBapNonceSize>& nonce,
+                                        std::span<std::byte> response,
+                                        std::size_t& written,
+                                        queuez::SessionState& after) noexcept {
+    after = before;
+    if (!queuez::valid(before) || !before.family4Active || before.family4RootSoid == 0
+        || before.family4Version == (std::numeric_limits<std::int32_t>::max)()) {
+        return false;
+    }
+    snapshot::Prepared prepared{};
+    if (!snapshot::prepare_family4_refresh(
+            scratch, before.family4RootSoid, before.family4Version + 1, prepared)
+        || !queuez::stage_family4_refresh(before, prepared.family, after)) {
+        return false;
+    }
+    const std::size_t objectCount = prepared.family.objects.size();
+    const std::size_t beforeBytes = written;
+    if (!queuez_frame::append(scratch,
+                              prepared.family,
+                              prepared.rawClearSize,
+                              prepared.compressedClearSize,
+                              key,
+                              nonce,
+                              response,
+                              written)) {
+        after = before;
+        return false;
+    }
+    middleware::secure_channel::advance_nonce(nonce);
+    queuez_report::push(
+        "peer_resync", queuez::kAccountFamilyType, objectCount, written - beforeBytes, 1);
+    return true;
+}
+
 /**
  * Stages the snapshots one subscription needs.
  * Every step reports and continues. The subscribe is answered whether or not a frame is built.
@@ -120,7 +160,9 @@ void append_queuez_notification(Scratch& scratch,
         && !queuez::stage_family3_subscription(before, subscription, publish, stagedAfter)) {
         queuez_report::subscription_state("stage_family3");
         stagedAfter = before;
-        publish = true;
+        // A failed mirror check must never send a version-zero roster into an active incremental
+        // ladder. The correlated subscription response still goes out without a stale snapshot.
+        publish = false;
     }
 
     snapshot::Prepared prepared{};
@@ -182,6 +224,16 @@ void append_queuez_notification(Scratch& scratch,
         queuez_frame::clear_object_storage(
             scratch, prepared.rawClearSize, prepared.compressedClearSize);
         after = stagedAfter;
+        return;
+    }
+    if (subscription.familyType == queuez::kRosterFamilyType
+        && (!stagedAfter.family3Active || stagedAfter.family3RootSoid != subscription.familyRootSoid
+            || stagedAfter.family3Version != queuez::kInitialFamilyVersion
+            || prepared.family.type != queuez::kRosterFamilyType
+            || prepared.family.rootSoid != stagedAfter.family3RootSoid
+            || prepared.family.version != stagedAfter.family3Version
+            || prepared.family.flags != middleware::queuez::kFullSnapshotFlag)) {
+        queuez_report::subscription_failure("family3_ladder");
         return;
     }
     const std::size_t objectCount = prepared.family.objects.size();

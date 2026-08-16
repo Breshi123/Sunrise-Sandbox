@@ -3,17 +3,21 @@
 #include <Windows.h>
 
 #include <array>
+#include <vector>
 
 #include "../../../../core/filesystem/path.h"
 #include "../../../content/content_catalog.h"
 #include "../../abilities/definition.h"
 #include "../../cache/records/domains.h"
+#include "../../collectibles/collectible_catalog.h"
 #include "../../constants/definition.h"
 #include "../../definition.h"
 #include "../../hash_names/definition.h"
 #include "../../inventory/buckets/definition.h"
 #include "../../items/details/definition.h"
 #include "../../items/item_catalog.h"
+#include "../../items/socket_plugs/definition.h"
+#include "../../material_requirements/material_requirement_catalog.h"
 #include "../../progressions/definition.h"
 #include "../../scenarios/definition.h"
 #include "../../socket_entry_lists/definition.h"
@@ -25,26 +29,28 @@ namespace sunrise::state::build_data::runtime::persistence {
 /** Fixed cache paths, identity, and canonical snapshot storage guarded by one State lock. */
 struct Context {
     SRWLOCK lock{SRWLOCK_INIT};
-    std::array<content::Definition, content::kDefinitionCatalogCapacity> namedScratch{};
-    std::array<items::Definition, items::kDefinitionCapacity> itemScratch{};
-    std::array<items::details::Definition, items::details::kDefinitionCapacity> itemDetailScratch{};
-    std::array<inventory::buckets::Descriptor, inventory::buckets::kDescriptorCapacity>
-        inventoryBucketScratch{};
-    std::array<socket_entry_lists::Definition, socket_entry_lists::kDefinitionCapacity>
-        socketEntryListScratch{};
-    std::array<socket_entry_lists::EntryTable, socket_entry_lists::kEntryTableCapacity>
-        socketEntryTableScratch{};
-    std::array<abilities::Definition, abilities::kDefinitionCapacity> abilityBucketScratch{};
-    std::array<progressions::Definition, progressions::kDefinitionCapacity> progressionScratch{};
-    std::array<scenarios::Definition, scenarios::kDefinitionCapacity> scenarioScratch{};
-    std::array<scenarios::RosterGroup, scenarios::kRosterGroupCapacity> rosterGroupScratch{};
-    std::array<spawn_sets::Stem, spawn_sets::kStemCapacity> spawnStemScratch{};
-    std::array<spawn_sets::NameHash, spawn_sets::kNameHashCapacity> spawnNameHashScratch{};
-    std::array<hash_names::Name, hash_names::kNameCapacity> hashNameScratch{};
-    std::array<vendors::IndexEntry, vendors::kIndexCapacity> vendorIndexScratch{};
-    std::array<vendors::Definition, vendors::kDefinitionCapacity> vendorDefinitionScratch{};
-    std::array<vendors::SaleRow, vendors::kSaleRowCapacity> vendorSaleRowScratch{};
-    std::array<vendors::InstalledRow, vendors::kInstalledRowCapacity> vendorInstalledRowScratch{};
+    std::vector<content::Definition> namedScratch{};
+    std::vector<items::Definition> itemScratch{};
+    std::vector<collectibles::Definition> collectibleScratch{};
+    std::vector<material_requirements::Definition> materialRequirementSetScratch{};
+    std::vector<items::details::Definition> itemDetailScratch{};
+    std::vector<items::socket_plugs::Rule> socketPlugRuleScratch{};
+    std::vector<items::socket_plugs::Pool> socketPlugPoolScratch{};
+    std::vector<items::socket_plugs::Member> socketPlugMemberScratch{};
+    std::vector<inventory::buckets::Descriptor> inventoryBucketScratch{};
+    std::vector<socket_entry_lists::Definition> socketEntryListScratch{};
+    std::vector<socket_entry_lists::EntryTable> socketEntryTableScratch{};
+    std::vector<abilities::Definition> abilityBucketScratch{};
+    std::vector<progressions::Definition> progressionScratch{};
+    std::vector<scenarios::Definition> scenarioScratch{};
+    std::vector<scenarios::RosterGroup> rosterGroupScratch{};
+    std::vector<spawn_sets::Stem> spawnStemScratch{};
+    std::vector<spawn_sets::NameHash> spawnNameHashScratch{};
+    std::vector<hash_names::Name> hashNameScratch{};
+    std::vector<vendors::IndexEntry> vendorIndexScratch{};
+    std::vector<vendors::Definition> vendorDefinitionScratch{};
+    std::vector<vendors::SaleRow> vendorSaleRowScratch{};
+    std::vector<vendors::InstalledRow> vendorInstalledRowScratch{};
     cache::records::InvestmentConstants constantsScratch{};
     core::path::Buffer cacheDirectory;
     core::path::Buffer cachePath;
@@ -65,6 +71,9 @@ struct Context {
  * @param state Its lock must already be held exclusively.
  */
 void clear_locked(Context& state) noexcept;
+
+/** Releases transient cache snapshot banks while preserving paths, identity, and flags. */
+void release_scratch_locked(Context& state) noexcept;
 
 /**
  * Gives mutable views over every generated domain.

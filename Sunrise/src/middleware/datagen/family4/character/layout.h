@@ -38,8 +38,10 @@ inline constexpr std::size_t kObjectiveValueCapacity = 768;
 inline constexpr std::size_t kCreationHeaderSize = 36;
 /** The next inventory serial is followed by 4 reserved alignment bytes. */
 inline constexpr std::size_t kInventorySerialPaddingSize = 4;
-/** 200 reserved bytes separate inventory rows from equipped instance keys. */
-inline constexpr std::size_t kInventoryEquipmentPaddingSize = 200;
+/** 4 opaque bytes precede the character inventory-change list. */
+inline constexpr std::size_t kInventoryChangeUnknownSize = 4;
+/** The character object carries at most 16 transient inventory-change records. */
+inline constexpr std::size_t kInventoryChangeRecordCapacity = 16;
 /** 52 reserved bytes separate the equipment summary from its validity gate. */
 inline constexpr std::size_t kSummaryGatePaddingSize = 52;
 /** 14 reserved bytes separate the two inventory validity gate fields. */
@@ -108,6 +110,29 @@ struct RosterMirrorEntry {
     std::array<std::byte, kRosterMirrorEntrySize> bytes{};
 };
 
+/** One transient inventory mutation consumed by the native character-object observer. */
+struct InventoryChangeRecord {
+    /** Rising record identity; the native observer prefers the greatest matching value. */
+    std::uint16_t sequence{};
+    std::uint16_t reserved{};
+    /** Mutation serial of the inventory row this record describes. */
+    std::int32_t mutationSerial{};
+    /** Nonzero mutation kind. Kind 1 follows the ordinary item-acquisition path. */
+    std::uint8_t kind{};
+    std::uint8_t reservedKind{};
+    /** Native observer policy bits; 0 enables the ordinary acquisition path. */
+    std::uint16_t flags{};
+};
+
+/** Header and fixed record bank occupying bytes 0x2BFC through 0x2CBF. */
+struct InventoryChangeList {
+    /** Ring slot the native producer will write next. */
+    std::uint16_t writeSlot{};
+    /** Sequence assigned to the next native record. */
+    std::uint16_t nextSequence{};
+    std::array<InventoryChangeRecord, kInventoryChangeRecordCapacity> records{};
+};
+
 /** Byte-exact selected-character Family-4 object generated from resolved loadout rows. */
 struct Object {
     std::uint64_t characterSoid{};
@@ -117,7 +142,8 @@ struct Object {
     std::uint32_t nextInventorySerial{};
     std::array<std::byte, kInventorySerialPaddingSize> inventorySerialPadding{};
     std::array<inventory::layout::Entry, kInventoryCapacity> inventoryItems{};
-    std::array<std::byte, kInventoryEquipmentPaddingSize> inventoryEquipmentPadding{};
+    std::array<std::byte, kInventoryChangeUnknownSize> inventoryChangeUnknown{};
+    InventoryChangeList inventoryChanges{};
     std::array<std::uint64_t, kEquipmentCapacity> equippedInstanceSoids{};
     EquipmentSummary equipmentSummary{};
     std::array<std::byte, kSummaryGatePaddingSize> summaryGatePadding{};
@@ -159,6 +185,17 @@ static_assert(sizeof(EquipmentSummary)
               == kSummaryArrayCount * kEquipmentCapacity * sizeof(EquipmentSummaryEntry)
                      + kSummaryIntegerCount * sizeof(std::int32_t)
                      + kSummaryScalarCount * sizeof(float));
+static_assert(sizeof(InventoryChangeRecord)
+              == 3 * sizeof(std::uint16_t) + sizeof(std::int32_t) + 2 * sizeof(std::uint8_t));
+static_assert(offsetof(InventoryChangeRecord, mutationSerial) == 2 * sizeof(std::uint16_t));
+static_assert(offsetof(InventoryChangeRecord, kind)
+              == 2 * sizeof(std::uint16_t) + sizeof(std::int32_t));
+static_assert(offsetof(InventoryChangeRecord, flags)
+              == 2 * sizeof(std::uint16_t) + sizeof(std::int32_t) + 2 * sizeof(std::uint8_t));
+static_assert(sizeof(InventoryChangeList)
+              == 2 * sizeof(std::uint16_t)
+                     + kInventoryChangeRecordCapacity * sizeof(InventoryChangeRecord));
+static_assert(offsetof(InventoryChangeList, records) == 2 * sizeof(std::uint16_t));
 static_assert(sizeof(Object) == kObjectSize);
 static_assert(std::is_trivially_copyable_v<Object>);
 

@@ -71,7 +71,7 @@ public:
 
     /** Drops every row. Call under an exclusive hold. */
     void clear() noexcept {
-        rows_.fill(Row{});
+        std::fill_n(rows_.begin(), count_, Row{});
         count_ = 0;
     }
 
@@ -84,8 +84,12 @@ public:
         if (rows.size() > Capacity) {
             return false;
         }
-        rows_.fill(Row{});
         std::copy(rows.begin(), rows.end(), rows_.begin());
+        if (count_ > rows.size()) {
+            std::fill(rows_.begin() + static_cast<std::ptrdiff_t>(rows.size()),
+                      rows_.begin() + static_cast<std::ptrdiff_t>(count_),
+                      Row{});
+        }
         // The count publishes the new rows, so it moves last.
         count_ = rows.size();
         return true;
@@ -102,7 +106,7 @@ public:
         if (count > Capacity) {
             return {};
         }
-        rows_.fill(Row{});
+        std::fill_n(rows_.begin(), (std::max)(count_, count), Row{});
         count_ = count;
         return {rows_.data(), count_};
     }

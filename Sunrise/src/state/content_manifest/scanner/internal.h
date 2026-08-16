@@ -35,6 +35,7 @@ struct Candidate final {
  * Checks every listed header and emits one row per installed file.
  * @param directory Installed packages directory used by inventory.
  * @param candidates Mutable inventory scratch, reordered during grouping.
+ * @param directoryFingerprint Inventory identity produced by the matching scan.
  * @param rows Fixed output storage for canonical manifest rows.
  * @param count Receives the emitted row count.
  * @param buildFingerprint Receives the SHA-256 fingerprint of the emitted public rows.
@@ -43,6 +44,7 @@ struct Candidate final {
  */
 [[nodiscard]] bool extract(std::wstring_view directory,
                            std::span<Candidate> candidates,
+                           const Fingerprint& directoryFingerprint,
                            std::span<Row> rows,
                            std::size_t& count,
                            Fingerprint& buildFingerprint,

@@ -18,6 +18,16 @@ bool valid(const SessionState& state) noexcept {
     if (!valid_phase(state.family3Phase)) {
         return false;
     }
+    // Family three has its own object store and version ladder.  It can become active one frame
+    // before the Family-4 companion during boot, but an active pair must always share one root.
+    if (state.family3Active) {
+        if (state.family3RootSoid == 0 || state.family3Version < kInitialFamilyVersion) {
+            return false;
+        }
+    } else if (state.family3RootSoid != 0 || state.family3Version != kInitialFamilyVersion
+               || state.family3Phase != Family3Phase::normal) {
+        return false;
+    }
     // Family zero holds no resident manifest, so its whole contract is the version ladder. An
     // inactive family carries nothing. An active one names a character and never goes back.
     if (state.family0Active) {
@@ -41,6 +51,9 @@ bool valid(const SessionState& state) noexcept {
     }
     if (state.family4RootSoid == 0 || state.family4ResidentCount == 0
         || state.family4ResidentCount > state.family4Residents.size()) {
+        return false;
+    }
+    if (state.family3Active && state.family3RootSoid != state.family4RootSoid) {
         return false;
     }
     // Version zero is the full snapshot, and the roster phase leaves normal only once an

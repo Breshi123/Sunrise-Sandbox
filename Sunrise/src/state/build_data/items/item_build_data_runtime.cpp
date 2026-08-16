@@ -29,4 +29,12 @@ bool find_item_definition_hash(std::uint32_t definitionHash,
     return item_definitions_ready() && items::find_hash(definitionHash, definition);
 }
 
+/** Finds one installed item by the native index carried by a Collections request. */
+bool find_item_definition_index(std::uint16_t definitionIndex,
+                                items::Definition& definition) noexcept {
+    definition = {};
+    return item_definitions_ready() && items::find_index(definitionIndex, definition)
+           && definition.definitionIndex == definitionIndex;
+}
+
 } // namespace sunrise::state::build_data

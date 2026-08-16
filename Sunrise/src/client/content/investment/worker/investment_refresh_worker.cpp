@@ -46,7 +46,7 @@ void service(std::uint64_t nowMilliseconds) noexcept {
     }
     g_nextEligible = nowMilliseconds + kRefreshIntervalMilliseconds;
 
-    if (sunrise::client::content::investment::requires_process_freeze()) {
+    if (sunrise::client::content::investment::requires_package_sweep()) {
         g_overlayPending = true;
         if (sunrise::core::ui::busy::raise_early(
                 sunrise::core::ui::busy::Task::contentExtraction)) {

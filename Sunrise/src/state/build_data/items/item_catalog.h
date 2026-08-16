@@ -10,12 +10,16 @@ namespace sunrise::state::build_data::items {
 inline constexpr std::size_t kDefinitionCapacity = 32768;
 /** All bucket bits set mark a valid item row whose inventory bucket was not found. */
 inline constexpr std::uint8_t kUnresolvedBucketId = 0xFF;
+/** A plug with no authored insertion/enabled price carries all set-index bits. */
+inline constexpr std::uint16_t kUnavailableMaterialRequirementSetIndex = 0xFFFFU;
 
 /** One installed-build item identity, used to look up authored definition hashes. */
 struct Definition {
     std::uint32_t definitionHash{};
     std::uint16_t definitionIndex{};
     std::uint8_t bucketId{kUnresolvedBucketId};
+    std::uint16_t insertionMaterialRequirementSetIndex{kUnavailableMaterialRequirementSetIndex};
+    std::uint16_t enabledMaterialRequirementSetIndex{kUnavailableMaterialRequirementSetIndex};
 };
 
 /** Clears every generated item mapping. */

@@ -27,8 +27,10 @@ inline constexpr std::uint32_t kSmallProfileSlotCapacity = 6;
 inline constexpr std::uint8_t kUnavailableBucketId = (std::numeric_limits<std::uint8_t>::max)();
 /** Leaving out the unavailable id leaves at most 255 unique bucket records. */
 inline constexpr std::size_t kDescriptorCapacity = kUnavailableBucketId;
-/** The packed cache record holds 2 bytes and 2 16-bit slot fields. */
-inline constexpr std::size_t kDescriptorByteSize = 6;
+/** Signed -1 marks a bucket that has no equipment slot. */
+inline constexpr std::int8_t kUnavailableEquipmentSlot = -1;
+/** The packed descriptor holds routing, an optional equipment slot, and one reserved byte. */
+inline constexpr std::size_t kDescriptorByteSize = 8;
 
 /** Packed routing record for one checked runtime inventory bucket. */
 struct Descriptor {
@@ -36,6 +38,8 @@ struct Descriptor {
     ArraySelector arraySelector{};
     std::uint16_t firstSlot{};
     std::uint16_t slotCount{};
+    std::int8_t equipmentSlot{kUnavailableEquipmentSlot};
+    std::uint8_t reserved{};
 };
 
 static_assert(sizeof(Descriptor) == kDescriptorByteSize);

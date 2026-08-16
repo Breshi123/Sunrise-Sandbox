@@ -20,20 +20,20 @@ constexpr std::uint64_t kTransitionWindowMs = 15'000;
 /** Captures the connection fields one service outcome carries. */
 ConnectionFields connection_fields(const ServiceOutcome& outcome) noexcept {
     ConnectionFields fields{};
-    if (!outcome.hasActivityTransaction) {
+    const auto* plan = transaction_if<activity_message::ActivityPlan>(outcome);
+    if (plan == nullptr) {
         return fields;
     }
-    const auto& plan = outcome.activityPlan;
-    if (plan.delivery == activity_message::Delivery::joinNotifications) {
-        fields.joinMemberKey = plan.entitySlotMutation.memberKey;
-        fields.joinCharacterSoid = plan.joinCharacterSoid;
+    if (plan->delivery == activity_message::Delivery::joinNotifications) {
+        fields.joinMemberKey = plan->entitySlotMutation.memberKey;
+        fields.joinCharacterSoid = plan->joinCharacterSoid;
         fields.joinsActivity = true;
     }
     // The initial load is a transition too, and its token does not arrive for several seconds.
     fields.opensTransitionWindow =
-        plan.delivery == activity_message::Delivery::joinNotifications || plan.transitionStarted;
-    if (plan.mutationDomain == activity_message::MutationDomain::patchEpoch) {
-        fields.patchEpoch = plan.patchEpoch;
+        plan->delivery == activity_message::Delivery::joinNotifications || plan->transitionStarted;
+    if (plan->mutationDomain == activity_message::MutationDomain::patchEpoch) {
+        fields.patchEpoch = plan->patchEpoch;
         fields.retainsPatchEpoch = true;
     }
     return fields;

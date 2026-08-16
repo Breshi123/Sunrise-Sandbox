@@ -71,4 +71,24 @@ bool prepare_initial(Scratch& scratch,
     return true;
 }
 
+/** Rebuilds the account family at an explicitly staged nonzero version. */
+bool prepare_family4_refresh(Scratch& scratch,
+                             std::uint64_t familyRootSoid,
+                             std::int32_t version,
+                             Prepared& prepared) noexcept {
+    if (familyRootSoid == 0 || version <= kInitialFamilyVersion) {
+        return false;
+    }
+    middleware::queuez::Subscription subscription{};
+    subscription.familyType = kAccountFamilyType;
+    subscription.familyRootSoid = familyRootSoid;
+    if (!prepare_initial(scratch, subscription, prepared) || prepared.family.objects.empty()
+        || prepared.family.type != kAccountFamilyType || prepared.family.rootSoid != familyRootSoid
+        || prepared.family.flags != middleware::queuez::kFullSnapshotFlag) {
+        return false;
+    }
+    prepared.family.version = version;
+    return true;
+}
+
 } // namespace sunrise::server::bap::encrypted::push::snapshot

@@ -2,6 +2,8 @@
 
 #include <array>
 #include <atomic>
+#include <cstdio>
+#include <limits>
 
 #include "../../core/logging/log.h"
 #include "../../state/matchmaking/matchmaking_state.h"
@@ -14,6 +16,40 @@ namespace {
 SRWLOCK g_lock{SRWLOCK_INIT};
 std::array<Session, kSessionCount> g_sessions{};
 Scratch g_scratch{};
+std::uint64_t g_accountGeneration{};
+
+/** Arms every other active peer after one shared-account transaction is published. */
+void publish_account_mutation(Session& origin) noexcept {
+    origin.accountMutationPublished = false;
+    g_accountGeneration = g_accountGeneration == (std::numeric_limits<std::uint64_t>::max)()
+                              ? 1
+                              : g_accountGeneration + 1;
+    origin.accountGeneration = g_accountGeneration;
+    origin.accountResyncGeneration = g_accountGeneration;
+    origin.accountResyncArmed = false;
+    std::size_t armed = 0;
+    for (auto& peer : g_sessions) {
+        if (&peer == &origin || peer.id == 0 || !peer.authenticated || !peer.queuez.family4Active) {
+            continue;
+        }
+        peer.accountResyncGeneration = g_accountGeneration;
+        peer.accountResyncArmed = true;
+        ++armed;
+    }
+    std::array<char, core::log::kLineCapacity> line{};
+    const int count = std::snprintf(line.data(),
+                                    line.size(),
+                                    "ev=queuez stage=peer_resync_arm result=ok generation=%llu "
+                                    "origin=%u peers=%zu",
+                                    static_cast<unsigned long long>(g_accountGeneration),
+                                    origin.id,
+                                    armed);
+    if (count > 0) {
+        core::log::write(core::log::Channel::server,
+                         core::log::Level::debug,
+                         {line.data(), static_cast<std::size_t>(count)});
+    }
+}
 
 /** @param id Nonzero connection id. @return Matching open session, or null. */
 [[nodiscard]] Session* session_for(std::uint32_t id) noexcept {
@@ -98,6 +134,10 @@ void clear_session(Session& session) noexcept {
     if (!handled) {
         return false;
     }
+    if (frame.frameType == middleware::bap::FrameType::encrypted
+        && session->accountMutationPublished) {
+        publish_account_mutation(*session);
+    }
     // A frame response can carry one already-due push in the same bounded socket write.
     bool touchesScratch = true;
     std::size_t deferred = 0;
@@ -178,6 +218,7 @@ void shutdown() noexcept {
     }
     SecureZeroMemory(g_sessions.data(), sizeof g_sessions);
     SecureZeroMemory(&g_scratch, sizeof g_scratch);
+    g_accountGeneration = 0;
     ReleaseSRWLockExclusive(&g_lock);
 }
 

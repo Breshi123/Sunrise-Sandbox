@@ -48,7 +48,7 @@ constexpr std::size_t kPreviewFlagOffsets[]{8, 9};
     output.unusedFloatA = 1.0F;
     output.unusedFloatB = static_cast<float>(light);
     output.light = static_cast<float>(light);
-    if (!appearance::apply_render(instances, output)
+    if (!appearance::apply_render(instances, character.characterClass, output)
         || !appearance::apply_stats(instances, light, output)
         || !appearance::apply_ability_buckets(character, instances, output)) {
         return false;

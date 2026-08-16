@@ -8,7 +8,8 @@ namespace {
 
 /** The art block declares its gear art definition index here. */
 constexpr std::size_t kGearArtIndexOffset = 88;
-/** One art row is 4 bytes and carries its art index after a class byte and one pad byte. */
+/** One art row is 4 bytes: signed class, one pad byte, then its art index. */
+constexpr std::size_t kArtRowStride = 4;
 constexpr std::size_t kArtRowValueOffset = 2;
 /** Material override arrays sit at these art-block offsets, one per stage. */
 constexpr std::size_t kMaterialStageOffsets[]{40, 56, 72};
@@ -57,9 +58,7 @@ read(std::span<const std::byte> blob, std::size_t offset, Value& value) noexcept
 }
 
 /**
- * Reads the two art indices the art block declares.
- * The arrangement index comes from the block's first art row, so the row count must be checked.
- * An art block with no rows would read arrangement zero, which is a real arrangement, not none.
+ * Reads the gear-art index and every class-qualified arrangement the art block declares.
  * @param definition Whole item definition bytes.
  * @param art Art block offset.
  * @param row Receives both art indices.
@@ -70,7 +69,20 @@ void read_art(std::span<const std::byte> definition, std::size_t art, Row& row) 
     if (!find_array_at(definition, art, rows) || rows.elementClass != kArtRowClass) {
         return;
     }
-    (void)read(definition, rows.dataOffset + kArtRowValueOffset, row.artArrangementIndex);
+    for (std::uint64_t index = 0; index < rows.count; ++index) {
+        const std::size_t at = rows.dataOffset + static_cast<std::size_t>(index) * kArtRowStride;
+        std::int8_t characterClass = -1;
+        std::uint16_t arrangement = kUnavailableArtIndex;
+        if (!read(definition, at, characterClass)
+            || !read(definition, at + kArtRowValueOffset, arrangement)) {
+            return;
+        }
+        const std::size_t slot =
+            characterClass == -1 ? 0 : static_cast<std::size_t>(characterClass) + 1U;
+        if (slot < kArtClassCapacity && row.artArrangementIndices[slot] == kUnavailableArtIndex) {
+            row.artArrangementIndices[slot] = arrangement;
+        }
+    }
 }
 
 /**
@@ -147,7 +159,9 @@ void read_sandbox_perks(std::span<const std::byte> definition, Row& row) noexcep
 /** Reads the art indices, material override rows and sandbox perks one definition declares. */
 void read_appearance(std::span<const std::byte> definition, Row& row) noexcept {
     row.gearArtIndex = kUnavailableArtIndex;
-    row.artArrangementIndex = kUnavailableArtIndex;
+    std::fill(std::begin(row.artArrangementIndices),
+              std::end(row.artArrangementIndices),
+              kUnavailableArtIndex);
     row.sandboxPerkCount = 0;
     row.renderOverrideCount = 0;
     std::size_t art = 0;

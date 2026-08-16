@@ -1,10 +1,10 @@
 #include "configured_item_detail_extractor.h"
 
 #include <algorithm>
-#include <array>
 #include <bitset>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "../../../../state/build_data/items/item_catalog.h"
 #include "../../../../state/build_data/socket_entry_lists/definition.h"
@@ -94,7 +94,7 @@ bool extract(const investment::Source& source,
     }
 
     std::bitset<build_items::kDefinitionCapacity> seen{};
-    std::array<build_details::Definition, build_details::kDefinitionCapacity> staged{};
+    std::vector<build_details::Definition> staged(requestedDefinitionIndices.size());
     for (std::size_t position = 0; position < requestedDefinitionIndices.size(); ++position) {
         const std::uint16_t definitionIndex = requestedDefinitionIndices[position];
         if (static_cast<std::size_t>(definitionIndex) >= table.rowCount
@@ -112,7 +112,7 @@ bool extract(const investment::Source& source,
     if (!stable_count(source, table)) {
         return false;
     }
-    std::copy_n(staged.begin(), requestedDefinitionIndices.size(), output.begin());
+    std::copy_n(staged.data(), requestedDefinitionIndices.size(), output.begin());
     count = requestedDefinitionIndices.size();
     return true;
 }

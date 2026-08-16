@@ -153,6 +153,8 @@ bool resolve_item(const authored_inventory::Item& authored,
     Candidate candidate{};
     candidate.bucket = bucket;
     candidate.item.equipmentSlot = static_cast<std::uint8_t>(*itemDetail.equipmentSlot);
+    candidate.item.mutationSerial = authored.mutationSerial;
+    candidate.item.flags = authored.flags;
     if (!resolve_quantity(authored, itemDetail, candidate.item.quantity)
         || !resolve_ordinary_sockets(authored.sockets,
                                      itemDetail,

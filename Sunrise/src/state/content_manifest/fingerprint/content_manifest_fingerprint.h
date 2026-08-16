@@ -65,6 +65,17 @@ private:
 [[nodiscard]] bool rows(std::span<const Row> rows, Fingerprint& output) noexcept;
 
 /**
+ * Builds the client-visible manifest identity from public rows and installed-file metadata.
+ * @param rows Sorted, already-checked rows.
+ * @param directoryFingerprint Identity covering package names, sizes, and write times.
+ * @param output Cleared SHA-256 result.
+ * @return True when both identity components are hashed.
+ */
+[[nodiscard]] bool catalog(std::span<const Row> rows,
+                           const Fingerprint& directoryFingerprint,
+                           Fingerprint& output) noexcept;
+
+/**
  * Formats an application-defined UUID from a public row fingerprint.
  * @param buildFingerprint SHA-256 identity for the complete row set.
  * @param output Cleared lowercase canonical UUID text.

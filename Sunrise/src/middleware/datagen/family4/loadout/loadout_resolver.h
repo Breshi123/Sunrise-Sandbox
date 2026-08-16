@@ -31,4 +31,13 @@ namespace sunrise::middleware::datagen::family4::loadout {
                                      std::size_t characterIndex,
                                      ResolvedInstances& output) noexcept;
 
+/**
+ * Resolves every equipped and unequipped item instance one character owns.
+ * Family four must
+ * publish an instance object for every SOID referenced by the character inventory.
+ */
+[[nodiscard]] bool resolve_owned_instances(const state::AccountState& account,
+                                           std::size_t characterIndex,
+                                           ResolvedInstances& output) noexcept;
+
 } // namespace sunrise::middleware::datagen::family4::loadout

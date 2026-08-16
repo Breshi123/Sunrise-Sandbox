@@ -13,7 +13,6 @@
 #include "../content/investment/worker.h"
 #include "../executable/image.h"
 #include "../hooks/assert_handler/assert_handler_lifecycle.h"
-#include "../hooks/banner/banner_hook_lifecycle.h"
 #include "../hooks/bitmap/bitmap_hook_lifecycle.h"
 #include "../hooks/bootflow/bootflow_hook_lifecycle.h"
 #include "../hooks/config_getter/config_getter_lifecycle.h"
@@ -21,6 +20,7 @@
 #include "../hooks/graphics/graphics_hook_lifecycle.h"
 #include "../hooks/network/runtime.h"
 #include "../hooks/noclip/runtime.h"
+#include "../hooks/package_trust/package_trust_bypass.h"
 #include "../hooks/polled_input/runtime.h"
 #include "../hooks/queuez/queuez_hook_lifecycle.h"
 #include "../hooks/retail_log/retail_log_lifecycle.h"
@@ -127,9 +127,16 @@ void clear_game_targets() noexcept {
         report_resolve_failure();
         return false;
     }
+    // Steam initialization installs package trust before base-package registration. Keep this
+    // idempotent check beside the other main-image hooks so activation also verifies ownership.
+    if (!hooks::package_trust::install()) {
+        clear_game_targets();
+        return false;
+    }
     // The SignOn config blob carries this token. It must reach State before any hook owns the
     // resolved targets: extraction cannot recover from a missing bootstrap token.
     if (!content::bootstrap::publish_token()) {
+        (void)hooks::package_trust::uninstall();
         clear_game_targets();
         return false;
     }
@@ -138,6 +145,7 @@ void clear_game_targets() noexcept {
                          core::log::Level::error,
                          "ev=activate stage=game_network result=fail");
         if (!hooks::network::has_game_ownership()) {
+            (void)hooks::package_trust::uninstall();
             clear_game_targets();
         }
         return false;
@@ -166,9 +174,6 @@ void clear_game_targets() noexcept {
     // The bitmap reference guard puts the none sentinel in place of a reference outside tag
     // space. Without it the widget's stored-reference reader faults.
     (void)hooks::bitmap::install();
-    // The orbit banner component ships unbound, so its update body never runs and it draws the
-    // constructor's values.
-    (void)hooks::banner::install();
     content::investment::worker::activate();
     return true;
 }

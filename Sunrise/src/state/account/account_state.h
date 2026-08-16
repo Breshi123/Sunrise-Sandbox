@@ -11,6 +11,14 @@ namespace sunrise::state {
 
 /** One account can own at most the 3 playable character slots. */
 inline constexpr std::size_t kCharacterCapacity = 3;
+/** A server-authored dismantle policy stays small but leaves room for build variants. */
+inline constexpr std::size_t kDismantleRewardPolicyCapacity = 8;
+
+/** One profile material credited when ordinary character gear is dismantled. */
+struct DismantleRewardPolicy {
+    std::uint32_t definitionHash{};
+    std::int32_t quantity{};
+};
 
 /** Stable character race values authored independently of package definition mappings. */
 enum class CharacterRace : std::uint8_t {
@@ -91,11 +99,18 @@ struct CharacterState {
     std::uint8_t classAbilityEntry{kDefaultClassAbilityEntry};
     /** Authored loadout keyed only by stable semantic equipment slots. */
     account::inventory::Equipment equipment;
+    /** Unequipped items routed into their installed character-inventory bucket ranges. */
+    account::inventory::CharacterItems inventory;
+    /** Next row generation; equip transactions consume two values for the two moved items. */
+    std::uint32_t nextInventorySerial{};
 };
 
 /** Account identity shared by backend object families. */
 struct AccountState {
     std::uint64_t primarySoid{};
+    /** Economy policy comes from configuration, never from item-specific runtime constants. */
+    std::array<DismantleRewardPolicy, kDismantleRewardPolicyCapacity> dismantleRewards{};
+    std::size_t dismantleRewardCount{};
     /** Account-wide currencies and materials, placed by bucket rather than by authored slot. */
     std::array<account::inventory::ProfileItem, account::inventory::kProfileItemCapacity>
         profileItems{};
@@ -108,6 +123,9 @@ struct AccountState {
 namespace account {
 
 [[nodiscard]] bool valid(const AccountState& state) noexcept;
+
+/** Checks settings-authored State before runtime-only profile stack SOIDs are assigned. */
+[[nodiscard]] bool valid_authored(const AccountState& state) noexcept;
 
 [[nodiscard]] std::uint64_t selected_character_soid(const AccountState& state) noexcept;
 

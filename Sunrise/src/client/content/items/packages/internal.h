@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -11,19 +12,26 @@
 #include "../../../../middleware/content/packages/tables/definition_index_table.h"
 #include "../../../../middleware/content/packages/tables/items.h"
 #include "../../../../state/build_data/abilities/definition.h"
+#include "../../../../state/build_data/collectibles/collectible_catalog.h"
 #include "../../../../state/build_data/constants/definition.h"
+#include "../../../../state/build_data/inventory/buckets/definition.h"
 #include "../../../../state/build_data/items/details/definition.h"
 #include "../../../../state/build_data/items/item_catalog.h"
+#include "../../../../state/build_data/material_requirements/material_requirement_catalog.h"
 #include "../../../../state/build_data/progressions/definition.h"
+#include "../../../../state/build_data/runtime.h"
 
 namespace sunrise::client::content::items::packages {
 
 namespace reader = middleware::content::packages::reader;
 namespace tables = middleware::content::packages::tables;
 
-/** Configured equipment rows plus every plug they socket. */
+/** Equippable rows, their initial plugs, and authored override plugs. */
 inline constexpr std::size_t kDetailCapacity =
     state::build_data::items::details::kDefinitionCapacity;
+
+/** Native item indices selected for the deduplicated detail closure. */
+using DetailRequests = std::bitset<state::build_data::items::kDefinitionCapacity>;
 
 /** Authored definition hashes one pass looks for while walking the item index table. */
 struct AuthoredHashes {
@@ -51,8 +59,20 @@ struct Storage {
     std::vector<std::byte> child{};
     std::vector<std::byte> root{};
     std::vector<std::byte> definition{};
-    std::array<std::uint16_t, kDetailCapacity> requested{};
-    std::array<state::build_data::items::details::Definition, kDetailCapacity> details{};
+    /** Shared reusable/randomized plug-set table read from investment-root slot 51. */
+    std::vector<std::byte> plugSetTable{};
+    /** Compact 0..3 special plug-category code of every dense installed item row. */
+    std::array<std::uint8_t, state::build_data::items::kDefinitionCapacity> specialPlugCategories{};
+    /** Inventory routing rows held until the paired bucket-definition table is resolved. */
+    std::array<state::build_data::inventory::buckets::Descriptor,
+               state::build_data::inventory::buckets::kDescriptorCapacity>
+        bucketRows{};
+    std::size_t bucketCount{};
+    std::array<std::int8_t, state::build_data::inventory::buckets::kDescriptorCapacity>
+        equipmentSlotByBucket{};
+    DetailRequests detailRequests{};
+    std::array<std::uint16_t, kDetailCapacity> requestedDetailIndices{};
+    std::vector<state::build_data::items::details::Definition> details{};
     AuthoredHashes authoredHashes{};
     std::vector<std::byte> abilityTable{};
     std::vector<std::byte> abilityPool{};
@@ -62,6 +82,12 @@ struct Storage {
     std::array<state::build_data::progressions::Definition,
                state::build_data::progressions::kDefinitionCapacity>
         progressionRows{};
+    std::array<state::build_data::collectibles::Definition,
+               state::build_data::collectibles::kDefinitionCapacity>
+        collectibleRows{};
+    std::array<state::build_data::material_requirements::Definition,
+               state::build_data::material_requirements::kDefinitionCapacity>
+        materialRequirementRows{};
     std::array<state::build_data::items::Definition, state::build_data::items::kDefinitionCapacity>
         rows{};
 };
@@ -79,41 +105,62 @@ struct Storage {
 [[nodiscard]] bool authored(const AuthoredHashes& hashes, std::uint32_t hash) noexcept;
 
 /**
- * Adds one definition index to the requested set.
- * @param definitionIndex Native item index.
- * @param requested Requested-set storage.
- * @param count Used entries, advanced on success.
- * @return True when the index fits.
+ * @param row Installed item row.
+ * @return True when its bucket maps to an equipment slot
+ * supported by the generated loadout.
  */
-[[nodiscard]] bool request(std::uint16_t definitionIndex,
-                           std::span<std::uint16_t> requested,
-                           std::size_t& count) noexcept;
+[[nodiscard]] bool equippable(const tables::items::Row& row) noexcept;
+
+/** Publishes parsed inventory buckets after applying the extracted item-slot relation. */
+[[nodiscard]] bool publish_buckets(Storage& storage) noexcept;
+
+/**
+ * Adds one definition index to the deduplicated requested set.
+ * @param definitionIndex Native
+ * item index.
+ * @param requested Requested-set storage.
+ */
+void request(std::uint16_t definitionIndex, DetailRequests& requested) noexcept;
 
 /**
  * Adds every socket lane's initial plug to the requested set.
- * A lane the authored loadout leaves unset falls back to this plug, so its detail must exist.
- * @param row Item row already read from its definition blob.
+ * A lane using native defaults falls back to this plug, so its detail must exist.
+ * @param row
+ * Item row already read from its definition blob.
+ * @param itemDefinitionCount Installed
+ * item-table bound.
  * @param requested Requested-set storage.
- * @param count Used entries, advanced per added lane.
- * @return True when every lane fits.
  */
-[[nodiscard]] bool append_initial_plugs(const tables::items::Row& row,
-                                        std::span<std::uint16_t> requested,
-                                        std::size_t& count) noexcept;
+void append_initial_plugs(const tables::items::Row& row,
+                          std::uint64_t itemDefinitionCount,
+                          DetailRequests& requested) noexcept;
 
-/** @param requested Requested-set storage. @param count Sorted and deduplicated in place. */
-void compact_requested(std::span<std::uint16_t> requested, std::size_t& count) noexcept;
+/**
+ * Materializes requested native indices in ascending order.
+ * @param requested Deduplicated
+ * native-index set.
+ * @param output Fixed detail-index storage.
+ * @param count Receives the
+ * number of selected rows, or zero when output is too small.
+ * @return True when every selected
+ * row fits.
+ */
+[[nodiscard]] bool materialize_requests(const DetailRequests& requested,
+                                        std::span<std::uint16_t> output,
+                                        std::size_t& count) noexcept;
 
 /**
  * Reads one requested definition and turns it into its cached detail form.
  * @param source Located item index table and package reader state.
  * @param definitionIndex Native item index.
  * @param detail Receives the cached detail.
+ * @param item Receives the raw definition row the detail was built from.
  * @return True when the row is found and its definition blob reads.
  */
 [[nodiscard]] bool build_detail(const DetailSource& source,
                                 std::uint16_t definitionIndex,
-                                state::build_data::items::details::Definition& detail) noexcept;
+                                state::build_data::items::details::Definition& detail,
+                                tables::items::Row& item) noexcept;
 
 /**
  * Reads the stat rows the installed investment constants blob names.
@@ -217,10 +264,46 @@ void report_detail_failure(std::size_t slot, std::uint16_t definitionIndex) noex
 /** @param count Ability bucket rows the pass built, one per subclass and ability selection. */
 void report_ability_count(std::size_t count) noexcept;
 
-/** @param count Detail rows the pass built, covering equipped items and every plug they socket. */
-void report_detail_count(std::size_t count) noexcept;
+/** Reports a bounded number of exact subclass/ability extraction failures per process. */
+void report_ability_failure(const char* stage,
+                            std::size_t character,
+                            std::size_t first,
+                            std::size_t second) noexcept;
 
-/** Reports the pass outcome once. @param published Rows published, or zero on failure. */
+/** Reports requested, retained, and skipped detail closure rows. */
+void report_detail_count(std::size_t requested, std::size_t built) noexcept;
+
+/**
+ * Reports the item index-table walk, including rows the pass could not read.
+ * @param walked Table entries the pass visited.
+ * @param rows Readable rows it retained.
+ * @param skipped Entries omitted because their index row or definition was malformed.
+ * @param truncated True when the walk stopped early because the row storage filled.
+ */
+void report_row_count(std::size_t walked,
+                      std::size_t rows,
+                      std::size_t skipped,
+                      bool truncated) noexcept;
+
+/** Reports the exact socket-rule, deduplicated-pool, member, and skipped-lane counts. */
+void report_socket_plug_count(std::size_t rules,
+                              std::size_t pools,
+                              std::size_t members,
+                              std::size_t skipped) noexcept;
+
+/** Reports the validated installed bucket/equipment-slot coverage. */
+void report_bucket_equipment_mapping(std::size_t mappedSlots) noexcept;
+
+/** Reports the first rejected bucket-definition invariant in one process. */
+void report_bucket_equipment_failure(const char* stage,
+                                     std::size_t first,
+                                     std::size_t second) noexcept;
+
+/**
+ * Reports the pass outcome once.
+ * @param published Rows published, or zero on failure.
+ * @param reason Stage the pass reached, named in the line.
+ */
 void report(std::size_t published, const char* reason) noexcept;
 
 /**
@@ -246,6 +329,23 @@ void report(std::size_t published, const char* reason) noexcept;
                                             std::span<const std::byte> root) noexcept;
 
 /**
+ * Reads and publishes the root's dense collectible-to-item mapping table.
+ * @param source
+ * Package source.
+ * @param storage Pass storage, including scratch bytes and bounded row storage.
+
+ * * @param root Investment root bytes.
+ * @param itemDefinitionCount Number of rows in the
+ * installed item index table.
+ * @return True when every tag, class, bound, and item link validates
+ * and publishes.
+ */
+[[nodiscard]] bool build_collectibles(const reader::Source& source,
+                                      Storage& storage,
+                                      std::span<const std::byte> root,
+                                      std::uint64_t itemDefinitionCount) noexcept;
+
+/**
  * Walks the located item index table, then publishes every domain that depends on it.
  * @param source Package source.
  * @param storage Pass storage holding the located table blob.
@@ -259,5 +359,11 @@ void report(std::size_t published, const char* reason) noexcept;
                                    const tables::Array& table,
                                    std::size_t& rowCount,
                                    const char*& reason) noexcept;
+
+/** Reads and publishes every native material-requirement set from investment-root slot 96. */
+[[nodiscard]] bool build_material_requirements(const reader::Source& source,
+                                               Storage& storage,
+                                               std::span<const std::byte> root,
+                                               std::uint64_t itemDefinitionCount) noexcept;
 
 } // namespace sunrise::client::content::items::packages

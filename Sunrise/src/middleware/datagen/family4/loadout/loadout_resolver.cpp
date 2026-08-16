@@ -74,12 +74,11 @@ namespace build_buckets = state::build_data::inventory::buckets;
     return false;
 }
 
-} // namespace
-
-/** Resolves the item instances one character owns, selected or not. */
-bool resolve_instances(const state::AccountState& account,
-                       std::size_t characterIndex,
-                       ResolvedInstances& output) noexcept {
+/** Resolves equipped items, and optionally unequipped inventory, for one character. */
+[[nodiscard]] bool resolve_character_instances(const state::AccountState& account,
+                                               std::size_t characterIndex,
+                                               bool includeInventory,
+                                               ResolvedInstances& output) noexcept {
     output = {};
     if (account.characterCount > account.characters.size()
         || characterIndex >= account.characterCount || !state::build_data::item_definitions_ready()
@@ -111,6 +110,21 @@ bool resolve_instances(const state::AccountState& account,
         }
         ++itemCount;
     }
+    if (includeInventory) {
+        for (std::size_t index = 0; index < character.inventory.count; ++index) {
+            Candidate candidate{};
+            if (itemCount >= resolved.size()
+                || !resolve_item(character.inventory.values[index],
+                                 character,
+                                 itemDefinitionCount,
+                                 socketEntryListCount,
+                                 candidate)
+                || !place_item(candidate, occupied, resolved[itemCount])) {
+                return false;
+            }
+            ++itemCount;
+        }
+    }
     std::sort(resolved.begin(),
               resolved.begin() + static_cast<std::ptrdiff_t>(itemCount),
               [](const ResolvedItem& first, const ResolvedItem& second) {
@@ -124,6 +138,22 @@ bool resolve_instances(const state::AccountState& account,
     staged.itemCount = itemCount;
     output = staged;
     return true;
+}
+
+} // namespace
+
+/** Resolves the equipped item instances one character owns, selected or not. */
+bool resolve_instances(const state::AccountState& account,
+                       std::size_t characterIndex,
+                       ResolvedInstances& output) noexcept {
+    return resolve_character_instances(account, characterIndex, false, output);
+}
+
+/** Resolves every equipped and unequipped item instance one character owns. */
+bool resolve_owned_instances(const state::AccountState& account,
+                             std::size_t characterIndex,
+                             ResolvedInstances& output) noexcept {
+    return resolve_character_instances(account, characterIndex, true, output);
 }
 
 /** Resolves one selected character's authored equipment through installed build data. */
@@ -149,8 +179,10 @@ bool resolve(const state::AccountState& account,
         semanticToNative{};
     std::array<std::optional<std::size_t>, state::build_data::items::details::kEquipmentSlotCount>
         nativeToSemantic{};
-    std::array<Candidate, kItemCapacity> selectedCandidates{};
-    std::array<bool, kItemCapacity> selectedPresent{};
+    std::array<Candidate, authored_inventory::kEquipmentSlotCount> selectedCandidates{};
+    std::array<bool, authored_inventory::kEquipmentSlotCount> selectedPresent{};
+    std::array<Candidate, authored_inventory::kCharacterItemCapacity> selectedInventory{};
+    std::size_t selectedInventoryCount = 0;
     std::array<std::uint64_t, state::kCharacterCapacity * kItemCapacity> instanceSoids{};
     std::size_t instanceSoidCount = 0;
     // Every character contributes to one stable semantic-to-native slot contract.
@@ -184,10 +216,34 @@ bool resolve(const state::AccountState& account,
                                           nativeToSemantic)) {
                 return false;
             }
+            candidate.item.equipped = true;
             if (characterIndex == selectedCharacterIndex) {
                 selectedCandidates[semanticIndex] = candidate;
                 selectedPresent[semanticIndex] = true;
             }
+        }
+        for (std::size_t itemIndex = 0; itemIndex < character.inventory.count; ++itemIndex) {
+            const authored_inventory::Item& authored = character.inventory.values[itemIndex];
+            const auto instanceSoidEnd =
+                instanceSoids.cbegin() + static_cast<std::ptrdiff_t>(instanceSoidCount);
+            if (instanceSoidCount >= instanceSoids.size()
+                || std::find(instanceSoids.cbegin(), instanceSoidEnd, authored.instanceSoid)
+                       != instanceSoidEnd) {
+                return false;
+            }
+            instanceSoids[instanceSoidCount++] = authored.instanceSoid;
+            if (characterIndex != selectedCharacterIndex) {
+                continue;
+            }
+            if (selectedInventoryCount >= selectedInventory.size()
+                || !resolve_item(authored,
+                                 character,
+                                 itemDefinitionCount,
+                                 socketEntryListCount,
+                                 selectedInventory[selectedInventoryCount])) {
+                return false;
+            }
+            ++selectedInventoryCount;
         }
     }
 
@@ -205,13 +261,20 @@ bool resolve(const state::AccountState& account,
         }
         ++staged.itemCount;
     }
+    for (std::size_t index = 0; index < selectedInventoryCount; ++index) {
+        // Equipment claims the first bucket row; unequipped items fill the remaining rows.
+        if (staged.itemCount >= staged.items.size()
+            || !place_item(selectedInventory[index], occupied, staged.items[staged.itemCount])) {
+            return false;
+        }
+        ++staged.itemCount;
+    }
     std::sort(staged.items.begin(),
               staged.items.begin() + static_cast<std::ptrdiff_t>(staged.itemCount),
               [](const ResolvedItem& first, const ResolvedItem& second) {
                   return first.inventoryRow < second.inventoryRow;
               });
-    for (std::size_t index = 0; index < staged.itemCount; ++index) {}
-    staged.nextInventorySerial = static_cast<std::uint32_t>(staged.itemCount);
+    staged.nextInventorySerial = account.characters[selectedCharacterIndex].nextInventorySerial;
 
     // Counts are the publication-stability gate for the mappings resolved above.
     if (state::build_data::item_definition_count() != itemDefinitionCount

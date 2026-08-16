@@ -11,10 +11,10 @@ namespace sunrise::state::content_manifest::cache {
 /** 8 owned ASCII bytes mark generated content-manifest caches. */
 inline constexpr std::array<char, 8> kCacheMagic{'S', 'U', 'N', 'C', 'M', 'A', 'N', 'F'};
 /**
- * Version 2 stores one public row per installed file with two SHA-256 ids. Version 1 kept only
- * the highest patch per package id, so its rows cannot be reused.
+ * Version 3 binds the public manifest id to package sizes and write times. Version 2 used only
+ * public row fields, allowing the Client to reuse stale header bytes after a package changed.
  */
-inline constexpr std::uint32_t kCacheVersion = 2;
+inline constexpr std::uint32_t kCacheVersion = 3;
 
 #pragma pack(push, 1)
 /** Fixed prefix that checks cache version, layout, directory and selected build. */

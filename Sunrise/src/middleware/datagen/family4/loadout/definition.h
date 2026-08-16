@@ -9,14 +9,21 @@
 
 namespace sunrise::middleware::datagen::family4::loadout {
 
-/** One selected item can occupy each of the 16 authored semantic equipment slots. */
-inline constexpr std::size_t kItemCapacity = state::account::inventory::kEquipmentSlotCount;
+/** Equipped plus unequipped authored items one character may publish. */
+inline constexpr std::size_t kItemCapacity = state::account::inventory::kEquipmentSlotCount
+                                             + state::account::inventory::kCharacterItemCapacity;
 
 /** One installed-build-resolved item ready for character and instance encoding. */
 struct ResolvedItem {
     std::uint16_t inventoryRow{};
     std::uint8_t equipmentSlot{};
+    /** Only equipped items publish their instance SOID into the native equipment array. */
+    bool equipped{};
     std::int32_t quantity{};
+    /** Authored runtime generation copied into the native inventory row. */
+    std::int32_t mutationSerial{};
+    /** Accumulated native item-state bits copied into the native inventory row. */
+    std::uint32_t flags{};
     instance::ResolvedInstance instance{};
 };
 

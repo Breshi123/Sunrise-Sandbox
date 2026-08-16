@@ -30,6 +30,43 @@ inline constexpr std::uint16_t kAbsentPackageId = 0xFFFFU;
 
 /** Element class of the item index table inside the investment container. */
 inline constexpr std::uint32_t kItemIndexTableClass = 0x80807BE8U;
+/** The investment root holds the installed collectible definition table at this slot. */
+inline constexpr std::size_t kCollectibleTableSlot = 19;
+/** Definition class recorded for the installed investment root tag. */
+inline constexpr std::uint32_t kInvestmentRootClass = 0x80807D84U;
+/** Definition class recorded for the installed collectible table tag. */
+inline constexpr std::uint32_t kCollectibleTableClass = 0x8080306DU;
+/** Element class recorded by the collectible table's inline array header. */
+inline constexpr std::uint32_t kCollectibleRowClass = 0x80803475U;
+/** One collectible row in this installed build occupies 184 bytes. */
+inline constexpr std::size_t kCollectibleRowStride = 0xB8;
+/** Authored DestinyCollectibleDefinition hash inside one collectible row. */
+inline constexpr std::size_t kCollectibleHashOffset = 0x28;
+/** Native item-definition index granted by one collectible row. */
+inline constexpr std::size_t kCollectibleItemIndexOffset = 0x2C;
+/** Native material-requirement-set ordinal carried by one collectible row. */
+inline constexpr std::size_t kCollectibleMaterialRequirementIndexOffset = 0x9A;
+/** The investment root holds the material-requirement-set table at this slot. */
+inline constexpr std::size_t kMaterialRequirementTableSlot = 96;
+/** Installed material-requirement-set table and row classes. */
+inline constexpr std::uint32_t kMaterialRequirementTableClass = 0x80807ACEU;
+inline constexpr std::uint32_t kMaterialRequirementSetRowClass = 0x80807AD4U;
+inline constexpr std::uint32_t kMaterialRequirementRowClass = 0x80807AD7U;
+/** One set row is a hash followed by a self-relative pointer to an array descriptor. */
+inline constexpr std::size_t kMaterialRequirementSetRowStride = 0x10;
+inline constexpr std::size_t kMaterialRequirementSetHashOffset = 0;
+inline constexpr std::size_t kMaterialRequirementSetArrayPointerOffset = 8;
+/** One requirement row is item index, quantity, two flags, then a native sentinel. */
+inline constexpr std::size_t kMaterialRequirementRowStride = 0x0C;
+inline constexpr std::size_t kMaterialRequirementItemIndexOffset = 0;
+inline constexpr std::size_t kMaterialRequirementQuantityOffset = 4;
+inline constexpr std::size_t kMaterialRequirementDeleteOffset = 8;
+inline constexpr std::size_t kMaterialRequirementOmitOffset = 9;
+inline constexpr std::size_t kMaterialRequirementSentinelOffset = 10;
+/** Plug item definitions name insertion/enabled requirement-set ordinals at fixed offsets. */
+inline constexpr std::size_t kInsertionMaterialRequirementSetIndexOffset = 0x1E8;
+inline constexpr std::size_t kEnabledMaterialRequirementSetIndexOffset = 0x200;
+inline constexpr std::uint16_t kUnavailableMaterialRequirementSetIndex = 0xFFFFU;
 /** Element class of an item's ordinary socket array. */
 inline constexpr std::uint32_t kOrdinarySocketClass = 0x808077C4U;
 /** One ordinary socket entry is 80 bytes. */
@@ -131,12 +168,28 @@ slot_tag(std::span<const std::byte> blob, std::size_t index, std::uint32_t& tag)
 
 /** The investment root holds the item index table at this slot. */
 inline constexpr std::size_t kItemTableSlot = 48;
+/** The investment root holds the shared reusable/randomized plug-set table at this slot. */
+inline constexpr std::size_t kPlugSetTableSlot = 51;
 /** The investment root holds the socket entry list table at this slot. */
 inline constexpr std::size_t kSocketEntryListTableSlot = 97;
 /** The globals container names the investment root as its first child. */
 inline constexpr std::size_t kInvestmentRootChild = 0;
 /** The investment root holds the inventory bucket table at this slot. */
 inline constexpr std::size_t kBucketTableSlot = 17;
+/**
+ * Package class of the bucket-definition table pairing inventory buckets with native equipment
+ * slots. Exactly one installed entry carries it, so a class sweep locates the table without
+ * naming the tag it happens to hold in one install.
+ */
+inline constexpr std::uint32_t kBucketDefinitionTableClass = 0x80805936U;
+/** The installed table contains one row for each item-bearing bucket definition. */
+inline constexpr std::size_t kBucketDefinitionCount = 34;
+/** One resolved bucket definition occupies 72 bytes. */
+inline constexpr std::size_t kBucketDefinitionSize = 72;
+/** The native equipment-slot byte sits here in each resolved bucket definition. */
+inline constexpr std::size_t kBucketDefinitionEquipmentSlotOffset = 64;
+/** Non-equippable bucket definitions carry the all-one slot sentinel. */
+inline constexpr std::uint8_t kBucketDefinitionUnavailableEquipmentSlot = 0xFF;
 /** Element class of the socket entry list table. */
 inline constexpr std::uint32_t kSocketEntryListTableClass = 0x80807A7EU;
 /** A socket entry list definition holds its entry array descriptor here. */

@@ -4,15 +4,19 @@
 
 #include <algorithm>
 #include <span>
+#include <vector>
 
 #include "../../../../core/ui/busy/busy.h"
 #include "../../abilities/ability_bucket_catalog.h"
 #include "../../cache/internal.h"
 #include "../../cache/records/validation.h"
+#include "../../collectibles/collectible_catalog.h"
 #include "../../constants/investment_constant_catalog.h"
 #include "../../hash_names/hash_name_catalog.h"
 #include "../../inventory/buckets/inventory_bucket_catalog.h"
 #include "../../items/details/item_detail_catalog.h"
+#include "../../items/socket_plugs/socket_plug_catalog.h"
+#include "../../material_requirements/material_requirement_catalog.h"
 #include "../../progressions/progression_catalog.h"
 #include "../../runtime.h"
 #include "../../scenarios/scenario_catalog.h"
@@ -26,6 +30,19 @@ namespace sunrise::state::build_data::runtime::persistence {
 namespace {
 
 Context g_context;
+
+/**
+ * Lazily sizes one bounded cache-snapshot bank and exposes all rows.
+ * @param storage Bank held by the caller's context, resized on first use.
+ * @return The whole bank.
+ */
+template <typename Value, std::size_t Capacity>
+[[nodiscard]] std::span<Value> ensure_scratch(std::vector<Value>& storage) noexcept {
+    if (storage.size() != Capacity) {
+        storage.assign(Capacity, Value{});
+    }
+    return storage;
+}
 
 /** @param value Published runtime constants. @return The packed header form. */
 [[nodiscard]] cache::records::InvestmentConstants
@@ -48,7 +65,16 @@ to_record(const constants::InvestmentConstants& value) noexcept {
     *scratch.constants = to_record(constants::snapshot());
     return content::snapshot(scratch.named, counts.named)
            && items::snapshot(scratch.items, counts.items)
+           && collectibles::snapshot(scratch.collectibles, counts.collectibles)
+           && material_requirements::snapshot(scratch.materialRequirementSets,
+                                              counts.materialRequirementSets)
            && items::details::snapshot(scratch.itemDetails, counts.itemDetails)
+           && items::socket_plugs::snapshot(scratch.socketPlugRules,
+                                            counts.socketPlugRules,
+                                            scratch.socketPlugPools,
+                                            counts.socketPlugPools,
+                                            scratch.socketPlugMembers,
+                                            counts.socketPlugMembers)
            && inventory::buckets::snapshot(scratch.inventoryBuckets, counts.inventoryBuckets)
            && socket_entry_lists::snapshot(scratch.socketEntryLists, counts.socketEntryLists)
            && socket_entry_lists::snapshot_entry_tables(scratch.socketEntryTables,
@@ -79,67 +105,141 @@ Context& context() noexcept {
 bool all_domains_ready() noexcept {
     constants::InvestmentConstants published{};
     return runtime::named::ready() && item_definitions_ready() && configured_item_details_ready()
-           && inventory_bucket_descriptors_ready() && socket_entry_lists_ready()
-           && ability_buckets_ready() && progression_definitions_ready() && scenario_layouts_ready()
-           && spawn_sets_ready() && hash_names_ready() && constants::find(published);
+           && collectible_definitions_ready() && socket_plug_rules_ready()
+           && material_requirement_sets_ready() && inventory_bucket_descriptors_ready()
+           && socket_entry_lists_ready() && ability_buckets_ready()
+           && progression_definitions_ready() && scenario_layouts_ready() && spawn_sets_ready()
+           && hash_names_ready() && constants::find(published);
 }
 
 /** Gives mutable views over every fixed snapshot buffer. */
 cache::records::MutableDomains scratch_domains(Context& state) noexcept {
+    const auto named = ensure_scratch<content::Definition, content::kDefinitionCatalogCapacity>(
+        state.namedScratch);
+    const auto items =
+        ensure_scratch<build_data::items::Definition, build_data::items::kDefinitionCapacity>(
+            state.itemScratch);
+    const auto collectibles =
+        ensure_scratch<build_data::collectibles::Definition,
+                       build_data::collectibles::kDefinitionCapacity>(state.collectibleScratch);
+    const auto materialRequirementSets = ensure_scratch<material_requirements::Definition,
+                                                        material_requirements::kDefinitionCapacity>(
+        state.materialRequirementSetScratch);
+    const auto itemDetails =
+        ensure_scratch<build_data::items::details::Definition,
+                       build_data::items::details::kDefinitionCapacity>(state.itemDetailScratch);
+    const auto socketPlugRules =
+        ensure_scratch<build_data::items::socket_plugs::Rule,
+                       build_data::items::socket_plugs::kRuleCapacity>(state.socketPlugRuleScratch);
+    const auto socketPlugPools =
+        ensure_scratch<build_data::items::socket_plugs::Pool,
+                       build_data::items::socket_plugs::kPoolCapacity>(state.socketPlugPoolScratch);
+    const auto socketPlugMembers = ensure_scratch<build_data::items::socket_plugs::Member,
+                                                  build_data::items::socket_plugs::kMemberCapacity>(
+        state.socketPlugMemberScratch);
+    const auto inventoryBuckets =
+        ensure_scratch<inventory::buckets::Descriptor, inventory::buckets::kDescriptorCapacity>(
+            state.inventoryBucketScratch);
+    const auto socketEntryLists =
+        ensure_scratch<socket_entry_lists::Definition, socket_entry_lists::kDefinitionCapacity>(
+            state.socketEntryListScratch);
+    const auto socketEntryTables =
+        ensure_scratch<socket_entry_lists::EntryTable, socket_entry_lists::kEntryTableCapacity>(
+            state.socketEntryTableScratch);
+    const auto abilityBuckets =
+        ensure_scratch<abilities::Definition, abilities::kDefinitionCapacity>(
+            state.abilityBucketScratch);
+    const auto progressions =
+        ensure_scratch<progressions::Definition, progressions::kDefinitionCapacity>(
+            state.progressionScratch);
+    const auto scenarios = ensure_scratch<scenarios::Definition, scenarios::kDefinitionCapacity>(
+        state.scenarioScratch);
+    const auto rosterGroups =
+        ensure_scratch<scenarios::RosterGroup, scenarios::kRosterGroupCapacity>(
+            state.rosterGroupScratch);
+    const auto spawnStems =
+        ensure_scratch<spawn_sets::Stem, spawn_sets::kStemCapacity>(state.spawnStemScratch);
+    const auto spawnNameHashes =
+        ensure_scratch<spawn_sets::NameHash, spawn_sets::kNameHashCapacity>(
+            state.spawnNameHashScratch);
+    const auto hashNames =
+        ensure_scratch<hash_names::Name, hash_names::kNameCapacity>(state.hashNameScratch);
+    const auto vendorIndex =
+        ensure_scratch<vendors::IndexEntry, vendors::kIndexCapacity>(state.vendorIndexScratch);
+    const auto vendorDefinitions =
+        ensure_scratch<vendors::Definition, vendors::kDefinitionCapacity>(
+            state.vendorDefinitionScratch);
+    const auto vendorSaleRows =
+        ensure_scratch<vendors::SaleRow, vendors::kSaleRowCapacity>(state.vendorSaleRowScratch);
+    const auto vendorInstalledRows =
+        ensure_scratch<vendors::InstalledRow, vendors::kInstalledRowCapacity>(
+            state.vendorInstalledRowScratch);
     return {
         &state.constantsScratch,
-        state.namedScratch,
-        state.itemScratch,
-        state.itemDetailScratch,
-        state.inventoryBucketScratch,
-        state.socketEntryListScratch,
-        state.socketEntryTableScratch,
-        state.abilityBucketScratch,
-        state.progressionScratch,
-        state.scenarioScratch,
-        state.rosterGroupScratch,
-        state.spawnStemScratch,
-        state.spawnNameHashScratch,
-        state.hashNameScratch,
-        state.vendorIndexScratch,
-        state.vendorDefinitionScratch,
-        state.vendorSaleRowScratch,
-        state.vendorInstalledRowScratch,
+        named,
+        items,
+        collectibles,
+        materialRequirementSets,
+        itemDetails,
+        socketPlugRules,
+        socketPlugPools,
+        socketPlugMembers,
+        inventoryBuckets,
+        socketEntryLists,
+        socketEntryTables,
+        abilityBuckets,
+        progressions,
+        scenarios,
+        rosterGroups,
+        spawnStems,
+        spawnNameHashes,
+        hashNames,
+        vendorIndex,
+        vendorDefinitions,
+        vendorSaleRows,
+        vendorInstalledRows,
     };
+}
+
+/**
+ * Releases one transient cache snapshot bank without walking its capacity.
+ * @param storage Bank emptied and handed back to the allocator.
+ */
+template <typename Value> void release_bank(std::vector<Value>& storage) noexcept {
+    storage.clear();
+    storage.shrink_to_fit();
+}
+
+/** Releases transient cache snapshot banks without allocating or walking their capacities. */
+void release_scratch_locked(Context& state) noexcept {
+    release_bank(state.namedScratch);
+    release_bank(state.itemScratch);
+    release_bank(state.collectibleScratch);
+    release_bank(state.materialRequirementSetScratch);
+    release_bank(state.itemDetailScratch);
+    release_bank(state.socketPlugRuleScratch);
+    release_bank(state.socketPlugPoolScratch);
+    release_bank(state.socketPlugMemberScratch);
+    release_bank(state.inventoryBucketScratch);
+    release_bank(state.socketEntryListScratch);
+    release_bank(state.socketEntryTableScratch);
+    release_bank(state.abilityBucketScratch);
+    release_bank(state.progressionScratch);
+    release_bank(state.scenarioScratch);
+    release_bank(state.rosterGroupScratch);
+    release_bank(state.spawnStemScratch);
+    release_bank(state.spawnNameHashScratch);
+    release_bank(state.hashNameScratch);
+    release_bank(state.vendorIndexScratch);
+    release_bank(state.vendorDefinitionScratch);
+    release_bank(state.vendorSaleRowScratch);
+    release_bank(state.vendorInstalledRowScratch);
+    state.constantsScratch = {};
 }
 
 /** Clears fixed cache paths, identity, flags, and snapshot storage. */
 void clear_locked(Context& state) noexcept {
-    const cache::records::MutableDomains scratch = scratch_domains(state);
-    std::fill(scratch.named.begin(), scratch.named.end(), content::Definition{});
-    std::fill(scratch.items.begin(), scratch.items.end(), items::Definition{});
-    std::fill(scratch.itemDetails.begin(), scratch.itemDetails.end(), items::details::Definition{});
-    std::fill(scratch.inventoryBuckets.begin(),
-              scratch.inventoryBuckets.end(),
-              inventory::buckets::Descriptor{});
-    std::fill(scratch.socketEntryLists.begin(),
-              scratch.socketEntryLists.end(),
-              socket_entry_lists::Definition{});
-    std::fill(scratch.socketEntryTables.begin(),
-              scratch.socketEntryTables.end(),
-              socket_entry_lists::EntryTable{});
-    std::fill(
-        scratch.abilityBuckets.begin(), scratch.abilityBuckets.end(), abilities::Definition{});
-    std::fill(scratch.progressions.begin(), scratch.progressions.end(), progressions::Definition{});
-    std::fill(scratch.scenarios.begin(), scratch.scenarios.end(), scenarios::Definition{});
-    std::fill(scratch.rosterGroups.begin(), scratch.rosterGroups.end(), scenarios::RosterGroup{});
-    std::fill(scratch.spawnStems.begin(), scratch.spawnStems.end(), spawn_sets::Stem{});
-    std::fill(
-        scratch.spawnNameHashes.begin(), scratch.spawnNameHashes.end(), spawn_sets::NameHash{});
-    std::fill(scratch.hashNames.begin(), scratch.hashNames.end(), hash_names::Name{});
-    std::fill(scratch.vendorIndex.begin(), scratch.vendorIndex.end(), vendors::IndexEntry{});
-    std::fill(
-        scratch.vendorDefinitions.begin(), scratch.vendorDefinitions.end(), vendors::Definition{});
-    std::fill(scratch.vendorSaleRows.begin(), scratch.vendorSaleRows.end(), vendors::SaleRow{});
-    std::fill(scratch.vendorInstalledRows.begin(),
-              scratch.vendorInstalledRows.end(),
-              vendors::InstalledRow{});
-    state.constantsScratch = {};
+    release_scratch_locked(state);
     state.cacheDirectory = {};
     state.cachePath = {};
     state.buildIdentity = {};
@@ -151,25 +251,49 @@ void clear_locked(Context& state) noexcept {
 /** Gives read-only views over the used rows of one canonical snapshot. */
 cache::records::Domains occupied_domains(Context& state,
                                          const cache::records::DomainCounts& counts) noexcept {
+    const std::span<const items::details::Definition> itemDetails{state.itemDetailScratch.data(),
+                                                                  counts.itemDetails};
+    const std::span<const items::socket_plugs::Rule> socketPlugRules{
+        state.socketPlugRuleScratch.data(), counts.socketPlugRules};
+    const std::span<const items::socket_plugs::Pool> socketPlugPools{
+        state.socketPlugPoolScratch.data(), counts.socketPlugPools};
+    const std::span<const items::socket_plugs::Member> socketPlugMembers{
+        state.socketPlugMemberScratch.data(), counts.socketPlugMembers};
     return {
         state.constantsScratch,
-        std::span(state.namedScratch).first(counts.named),
-        std::span(state.itemScratch).first(counts.items),
-        std::span(state.itemDetailScratch).first(counts.itemDetails),
-        std::span(state.inventoryBucketScratch).first(counts.inventoryBuckets),
-        std::span(state.socketEntryListScratch).first(counts.socketEntryLists),
-        std::span(state.socketEntryTableScratch).first(counts.socketEntryTables),
-        std::span(state.abilityBucketScratch).first(counts.abilityBuckets),
-        std::span(state.progressionScratch).first(counts.progressions),
-        std::span(state.scenarioScratch).first(counts.scenarios),
-        std::span(state.rosterGroupScratch).first(counts.rosterGroups),
-        std::span(state.spawnStemScratch).first(counts.spawnStems),
-        std::span(state.spawnNameHashScratch).first(counts.spawnNameHashes),
-        std::span(state.hashNameScratch).first(counts.hashNames),
-        std::span(state.vendorIndexScratch).first(counts.vendorIndex),
-        std::span(state.vendorDefinitionScratch).first(counts.vendorDefinitions),
-        std::span(state.vendorSaleRowScratch).first(counts.vendorSaleRows),
-        std::span(state.vendorInstalledRowScratch).first(counts.vendorInstalledRows),
+        std::span<const content::Definition>{state.namedScratch.data(), counts.named},
+        std::span<const build_data::items::Definition>{state.itemScratch.data(), counts.items},
+        std::span<const build_data::collectibles::Definition>{state.collectibleScratch.data(),
+                                                              counts.collectibles},
+        std::span<const material_requirements::Definition>{
+            state.materialRequirementSetScratch.data(), counts.materialRequirementSets},
+        itemDetails,
+        socketPlugRules,
+        socketPlugPools,
+        socketPlugMembers,
+        std::span<const inventory::buckets::Descriptor>{state.inventoryBucketScratch.data(),
+                                                        counts.inventoryBuckets},
+        std::span<const socket_entry_lists::Definition>{state.socketEntryListScratch.data(),
+                                                        counts.socketEntryLists},
+        std::span<const socket_entry_lists::EntryTable>{state.socketEntryTableScratch.data(),
+                                                        counts.socketEntryTables},
+        std::span<const abilities::Definition>{state.abilityBucketScratch.data(),
+                                               counts.abilityBuckets},
+        std::span<const progressions::Definition>{state.progressionScratch.data(),
+                                                  counts.progressions},
+        std::span<const scenarios::Definition>{state.scenarioScratch.data(), counts.scenarios},
+        std::span<const scenarios::RosterGroup>{state.rosterGroupScratch.data(),
+                                                counts.rosterGroups},
+        std::span<const spawn_sets::Stem>{state.spawnStemScratch.data(), counts.spawnStems},
+        std::span<const spawn_sets::NameHash>{state.spawnNameHashScratch.data(),
+                                              counts.spawnNameHashes},
+        std::span<const hash_names::Name>{state.hashNameScratch.data(), counts.hashNames},
+        std::span<const vendors::IndexEntry>{state.vendorIndexScratch.data(), counts.vendorIndex},
+        std::span<const vendors::Definition>{state.vendorDefinitionScratch.data(),
+                                             counts.vendorDefinitions},
+        std::span<const vendors::SaleRow>{state.vendorSaleRowScratch.data(), counts.vendorSaleRows},
+        std::span<const vendors::InstalledRow>{state.vendorInstalledRowScratch.data(),
+                                               counts.vendorInstalledRows},
     };
 }
 
@@ -199,6 +323,7 @@ bool persist_if_complete_locked(Context& state) noexcept {
     }
     state.persisted = true;
     state.replaceStaleCache = false;
+    release_scratch_locked(state);
     return true;
 }
 

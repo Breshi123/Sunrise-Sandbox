@@ -60,6 +60,8 @@ bool encode(const items::Definition& value, ItemRecord& record) noexcept {
         value.definitionIndex,
         value.bucketId,
         kReservedFieldValue,
+        value.insertionMaterialRequirementSetIndex,
+        value.enabledMaterialRequirementSetIndex,
     };
     return true;
 }
@@ -70,7 +72,115 @@ bool decode(const ItemRecord& record, items::Definition& value) noexcept {
     if (record.reserved != kReservedFieldValue) {
         return false;
     }
-    value = {record.definitionHash, record.definitionIndex, record.bucketId};
+    value = {record.definitionHash,
+             record.definitionIndex,
+             record.bucketId,
+             record.insertionMaterialRequirementSetIndex,
+             record.enabledMaterialRequirementSetIndex};
+    return true;
+}
+
+/** Encodes one collectible ordinal and its optional item link. */
+bool encode(const collectibles::Definition& value, CollectibleRecord& record) noexcept {
+    if (value.materialRequirementCount > value.materialRequirements.size()) {
+        return false;
+    }
+    record = {};
+    record.collectibleHash = value.collectibleHash;
+    record.materialRequirementSetHash = value.materialRequirementSetHash;
+    record.collectibleIndex = value.collectibleIndex;
+    record.itemDefinitionIndex = value.itemDefinitionIndex;
+    record.materialRequirementSetIndex = value.materialRequirementSetIndex;
+    record.materialRequirementCount = value.materialRequirementCount;
+    for (std::size_t index = 0; index < value.materialRequirements.size(); ++index) {
+        const collectibles::MaterialRequirement& requirement = value.materialRequirements[index];
+        record.materialRequirements[index] = {
+            requirement.quantity,
+            requirement.itemDefinitionIndex,
+            material_requirements::kUnconditionalRequirement,
+            static_cast<std::uint8_t>(requirement.deleteOnAction),
+            static_cast<std::uint8_t>(requirement.omitFromRequirements),
+        };
+    }
+    return record.materialRequirementCount <= record.materialRequirements.size();
+}
+
+/** Decodes one collectible row; the complete-domain validator checks both indices. */
+bool decode(const CollectibleRecord& record, collectibles::Definition& value) noexcept {
+    value = {};
+    if (record.reserved != kReservedFieldValue
+        || record.materialRequirementCount > record.materialRequirements.size()) {
+        return false;
+    }
+    value.collectibleHash = record.collectibleHash;
+    value.materialRequirementSetHash = record.materialRequirementSetHash;
+    value.collectibleIndex = record.collectibleIndex;
+    value.itemDefinitionIndex = record.itemDefinitionIndex;
+    value.materialRequirementSetIndex = record.materialRequirementSetIndex;
+    value.materialRequirementCount = record.materialRequirementCount;
+    for (std::size_t index = 0; index < record.materialRequirements.size(); ++index) {
+        const MaterialRequirementRecord& requirement = record.materialRequirements[index];
+        if (requirement.condition != material_requirements::kUnconditionalRequirement
+            || requirement.deleteOnAction > 1 || requirement.omitFromRequirements > 1) {
+            return false;
+        }
+        value.materialRequirements[index] = {
+            requirement.quantity,
+            requirement.itemDefinitionIndex,
+            requirement.deleteOnAction != 0,
+            requirement.omitFromRequirements != 0,
+        };
+    }
+    return true;
+}
+
+/** Encodes one installed action-cost set with canonical flags and unused rows. */
+bool encode(const material_requirements::Definition& value,
+            MaterialRequirementSetRecord& record) noexcept {
+    if (value.requirementCount > value.requirements.size()) {
+        return false;
+    }
+    record = {};
+    record.requirementSetHash = value.requirementSetHash;
+    record.requirementSetIndex = value.requirementSetIndex;
+    record.requirementCount = value.requirementCount;
+    for (std::size_t index = 0; index < value.requirements.size(); ++index) {
+        const material_requirements::Requirement& requirement = value.requirements[index];
+        record.requirements[index] = {
+            requirement.quantity,
+            requirement.itemDefinitionIndex,
+            requirement.condition,
+            static_cast<std::uint8_t>(requirement.deleteOnAction),
+            static_cast<std::uint8_t>(requirement.omitFromRequirements),
+        };
+    }
+    return true;
+}
+
+/** Decodes one installed action-cost set after checking every packed boolean. */
+bool decode(const MaterialRequirementSetRecord& record,
+            material_requirements::Definition& value) noexcept {
+    value = {};
+    if (record.reserved != kReservedFieldValue
+        || record.requirementCount > record.requirements.size()) {
+        return false;
+    }
+    value.requirementSetHash = record.requirementSetHash;
+    value.requirementSetIndex = record.requirementSetIndex;
+    value.requirementCount = record.requirementCount;
+    for (std::size_t index = 0; index < record.requirements.size(); ++index) {
+        const MaterialRequirementRecord& requirement = record.requirements[index];
+        if (requirement.deleteOnAction > 1 || requirement.omitFromRequirements > 1) {
+            return false;
+        }
+        value.requirements[index] = {
+            requirement.quantity,
+            requirement.itemDefinitionIndex,
+            requirement.condition,
+            requirement.deleteOnAction != 0,
+            requirement.omitFromRequirements != 0,
+        };
+    }
     return true;
 }
 
@@ -98,7 +208,7 @@ bool encode(const items::details::Definition& value, ItemDetailRecord& record) n
     }
     record.definitionHash = value.definitionHash;
     record.gearArtIndex = value.gearArtIndex;
-    record.artArrangementIndex = value.artArrangementIndex;
+    record.artArrangementIndices = value.artArrangementIndices;
     record.sandboxPerkCount = value.sandboxPerkCount;
     record.sandboxPerks = value.sandboxPerks;
     record.renderOverrideCount = value.renderOverrideCount;
@@ -137,7 +247,7 @@ bool decode(const ItemDetailRecord& record, items::details::Definition& value) n
     }
     value.definitionHash = record.definitionHash;
     value.gearArtIndex = record.gearArtIndex;
-    value.artArrangementIndex = record.artArrangementIndex;
+    value.artArrangementIndices = record.artArrangementIndices;
     value.sandboxPerkCount = record.sandboxPerkCount;
     value.sandboxPerks = record.sandboxPerks;
     value.renderOverrideCount = record.renderOverrideCount;
@@ -155,6 +265,8 @@ bool encode(const inventory::buckets::Descriptor& value, InventoryBucketRecord& 
         static_cast<std::uint8_t>(value.arraySelector),
         value.firstSlot,
         value.slotCount,
+        value.equipmentSlot,
+        value.reserved,
     };
     return true;
 }
@@ -166,6 +278,8 @@ bool decode(const InventoryBucketRecord& record, inventory::buckets::Descriptor&
         static_cast<inventory::buckets::ArraySelector>(record.arraySelector),
         record.firstSlot,
         record.slotCount,
+        record.equipmentSlot,
+        record.reserved,
     };
     return true;
 }

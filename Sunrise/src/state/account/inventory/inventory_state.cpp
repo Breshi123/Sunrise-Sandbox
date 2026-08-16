@@ -74,13 +74,30 @@ bool valid(const Sockets& sockets) noexcept {
 /** Checks one whole authored item without reading installed build data. */
 bool valid(const Item& item) noexcept {
     return item.instanceSoid != 0 && item.definitionHash != kNoDefinitionHash && item.level >= 0
-           && item.quantity > 0 && valid(item.sockets);
+           && item.quantity > 0 && item.mutationSerial >= 0 && valid(item.sockets);
 }
 
 /** Checks every item present in the fixed semantic equipment array. */
 bool valid(const Equipment& equipment) noexcept {
     for (const std::optional<Item>& item : equipment.slots) {
         if (item.has_value() && !valid(*item)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** Checks the used prefix and empty tail of one character's unequipped item array. */
+bool valid(const CharacterItems& items) noexcept {
+    if (items.count > items.values.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < items.values.size(); ++index) {
+        if (index < items.count) {
+            if (!valid(items.values[index])) {
+                return false;
+            }
+        } else if (items.values[index].instanceSoid != 0) {
             return false;
         }
     }

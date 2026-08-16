@@ -31,6 +31,10 @@ constexpr std::string_view kLineEnding = "\r\n";
 constexpr std::size_t kLineTerminatorBytes = 1;
 /** An elapsed line is one event, a duration and an outcome, so it needs less than a full line. */
 constexpr std::size_t kElapsedCapacity = 128;
+/** Uppercase digits for the hex traces, which are read beside hex dumps of the same bytes. */
+constexpr std::string_view kHexDigits = "0123456789ABCDEF";
+/** One byte prints as two hex digits, which is the room each appended byte needs. */
+constexpr std::size_t kHexDigitsPerByte = 2;
 /** Event text stops before the CRLF and the trailing null. */
 constexpr std::size_t kEventTextCapacity =
     kLineCapacity - kLineEnding.size() - kLineTerminatorBytes;
@@ -272,6 +276,21 @@ void write_elapsed(Channel channel,
     const auto length =
         std::min(static_cast<std::size_t>(written), line.size() - kLineTerminatorBytes);
     write(channel, Level::debug, {line.data(), length});
+}
+
+/** Appends bytes as uppercase hex to a line that already holds its key prefix. */
+bool append_hex(std::span<char> line,
+                std::size_t& length,
+                std::span<const std::byte> bytes) noexcept {
+    for (const std::byte byte : bytes) {
+        if (length + kHexDigitsPerByte >= line.size()) {
+            return false;
+        }
+        const auto value = std::to_integer<unsigned>(byte);
+        line[length++] = kHexDigits[(value >> 4U) & 0xFU];
+        line[length++] = kHexDigits[value & 0xFU];
+    }
+    return true;
 }
 
 /** @return True while a sink write is in progress. */

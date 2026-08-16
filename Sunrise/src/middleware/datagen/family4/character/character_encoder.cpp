@@ -54,7 +54,9 @@ constexpr std::int32_t kOccupiedRowWatermark = 1;
  */
 [[nodiscard]] bool valid(const loadout::ResolvedLoadout& resolvedLoadout) noexcept {
     if (resolvedLoadout.itemCount > resolvedLoadout.items.size()
-        || resolvedLoadout.nextInventorySerial != resolvedLoadout.itemCount) {
+        || resolvedLoadout.nextInventorySerial < resolvedLoadout.itemCount
+        || resolvedLoadout.nextInventorySerial
+               > static_cast<std::uint32_t>((std::numeric_limits<std::int32_t>::max)())) {
         return false;
     }
 
@@ -71,14 +73,20 @@ constexpr std::int32_t kOccupiedRowWatermark = 1;
             || itemInstance.bounds.itemDefinitionCount > instance::layout::kDefinitionIndexCapacity
             || itemInstance.baseDefinitionIndex == kEmptyDefinitionIndex
             || itemInstance.baseDefinitionIndex >= itemInstance.bounds.itemDefinitionCount
-            || occupiedRows[item.inventoryRow] || occupiedEquipmentSlots[item.equipmentSlot]
+            || item.mutationSerial < 0
+            || static_cast<std::uint32_t>(item.mutationSerial)
+                   >= resolvedLoadout.nextInventorySerial
+            || occupiedRows[item.inventoryRow]
+            || (item.equipped && occupiedEquipmentSlots[item.equipmentSlot])
             || std::find(instanceSoids.cbegin(), priorSoidsEnd, itemInstance.instanceSoid)
                    != priorSoidsEnd
             || (index != 0 && resolvedLoadout.items[index - 1].inventoryRow >= item.inventoryRow)) {
             return false;
         }
         occupiedRows[item.inventoryRow] = true;
-        occupiedEquipmentSlots[item.equipmentSlot] = true;
+        if (item.equipped) {
+            occupiedEquipmentSlots[item.equipmentSlot] = true;
+        }
         instanceSoids[index] = itemInstance.instanceSoid;
     }
     return true;
@@ -94,14 +102,21 @@ constexpr std::int32_t kOccupiedRowWatermark = 1;
 summary_matches_loadout(const loadout::ResolvedLoadout& resolvedLoadout,
                         const state::equipment::light::Evaluation& evaluation) noexcept {
     std::size_t summaryItemCount = 0;
-    for (const std::optional<state::equipment::light::ItemScore>& score : evaluation.character) {
-        summaryItemCount += static_cast<std::size_t>(score.has_value());
+    for (std::size_t index = 0; index < resolvedLoadout.itemCount; ++index) {
+        summaryItemCount += static_cast<std::size_t>(resolvedLoadout.items[index].equipped);
     }
-    if (summaryItemCount != resolvedLoadout.itemCount) {
+    std::size_t scoreCount = 0;
+    for (const std::optional<state::equipment::light::ItemScore>& score : evaluation.character) {
+        scoreCount += static_cast<std::size_t>(score.has_value());
+    }
+    if (summaryItemCount != scoreCount) {
         return false;
     }
     for (std::size_t index = 0; index < resolvedLoadout.itemCount; ++index) {
         const loadout::ResolvedItem& item = resolvedLoadout.items[index];
+        if (!item.equipped) {
+            continue;
+        }
         const auto& score = evaluation.character[item.equipmentSlot];
         if (!score.has_value() || score->definitionIndex != item.instance.baseDefinitionIndex) {
             return false;
@@ -160,12 +175,16 @@ bool encode(const state::CharacterState& state,
         inventoryRow.definitionIndex = item.instance.baseDefinitionIndex;
         inventoryRow.instanceSoid = item.instance.instanceSoid;
         inventoryRow.quantity = item.quantity;
+        inventoryRow.mutationSerial = item.mutationSerial;
+        inventoryRow.flags = item.flags;
         // Both companion arrays are indexed by inventory row, not by equipment slot, and the
         // client's own producer marks every row it fills.
         object.newItemFlags[item.inventoryRow / kBitsPerFlagByte] |=
             std::byte{1U} << (item.inventoryRow % kBitsPerFlagByte);
         object.instanceProgressWatermarks[item.inventoryRow] = kOccupiedRowWatermark;
-        object.equippedInstanceSoids[item.equipmentSlot] = item.instance.instanceSoid;
+        if (item.equipped) {
+            object.equippedInstanceSoids[item.equipmentSlot] = item.instance.instanceSoid;
+        }
     }
 
     // Commit only after validation so callers never receive a partially initialized object.
