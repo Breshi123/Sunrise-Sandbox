@@ -14,7 +14,7 @@ enum class Origin : std::uint8_t {
 };
 
 struct Settings {
-    float lift{0.5F};
+    float lift{1.0F};
     float rayDistance{100.0F};
     float scale{1.0F};
     std::array<float, 3> offset{};

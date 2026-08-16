@@ -336,18 +336,18 @@ void add_candidate(Column& column,
     if (name != nullptr) {
         (void)std::snprintf(value.label.data(),
                             value.label.size(),
-                            "%s | %s | 0x%08X | type %u",
+                            "%s | 0x%08X | type %u | %s",
                             name,
-                            package.data(),
                             tag,
-                            static_cast<unsigned>(type));
+                            static_cast<unsigned>(type),
+                            package.data());
     } else {
         (void)std::snprintf(value.label.data(),
                             value.label.size(),
-                            "%s | 0x%08X | type %u",
-                            package.data(),
+                            "0x%08X | type %u | %s",
                             tag,
-                            static_cast<unsigned>(type));
+                            static_cast<unsigned>(type),
+                            package.data());
     }
     column.candidates.push_back(value);
 }
