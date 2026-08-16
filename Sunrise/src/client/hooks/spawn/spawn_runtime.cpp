@@ -53,10 +53,11 @@ constexpr std::string_view kWorldRaycastText =
     "48 81 EC 40 01 00 00 0F 29 70 C8 0F 29 78 B8";
 constexpr auto kWorldRaycast = signature<signature_length(kWorldRaycastText)>(kWorldRaycastText);
 
-constexpr std::string_view kSummonUpdateText =
-    "48 89 5C 24 18 55 56 57 48 83 EC 20 49 8B E8 48 8B F2 48 8B F9 E8 ? ? ? ? "
-    "8B 57 2C 8B C2 0F B6 9F 20 0B 00 00 25 FF 1F 00 00";
-constexpr auto kSummonUpdate = signature<signature_length(kSummonUpdateText)>(kSummonUpdateText);
+constexpr std::string_view kPlayerComponentUpdateText =
+    "48 89 5C 24 10 55 57 41 54 41 56 41 57 48 8B EC 48 83 EC 70 45 33 E4 "
+    "48 89 B4 24 A0 00 00 00 41 8B FC 48 8D 99 FC 02 00 00 4D 8B F0 4C 8B FA";
+constexpr auto kPlayerComponentUpdate =
+    signature<signature_length(kPlayerComponentUpdateText)>(kPlayerComponentUpdateText);
 
 constexpr std::size_t kResolverCallOperand = 0x17;
 constexpr std::size_t kResolverCallEnd = 0x1B;
@@ -90,7 +91,7 @@ using WorldRaycast = bool(__fastcall*)(const float*,
                                       float*,
                                       float*,
                                       std::int32_t*);
-using SummonUpdate = void(__fastcall*)(void*, void*, void*);
+using PlayerComponentUpdate = void(__fastcall*)(void*, void*, void*);
 
 struct alignas(16) PlacementStorage {
     std::array<std::byte, kPlacementHeaderBytes + kPlacementPayloadBytes> bytes{};
@@ -185,6 +186,23 @@ void reset_storage(PlacementStorage& storage) noexcept {
     std::byte* const object = base + (handle & 0x1FFFU) * stride;
     std::uint32_t live = kInvalidDatum;
     return safe_read(object + kObjectHandleOffset, live) && live == handle ? object : nullptr;
+}
+
+[[nodiscard]] bool needs_activation(std::uint32_t tag) noexcept {
+    if (g_resolver == nullptr) {
+        return false;
+    }
+    const std::byte* definition = nullptr;
+    std::uint8_t type = 0;
+    __try {
+        definition = g_resolver(tag);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    if (definition == nullptr || !safe_read(definition + kDefinitionObjectType, type)) {
+        return false;
+    }
+    return type == 8 || type == 11 || type == 20 || type == 21;
 }
 
 void queue_activation(std::uint32_t handle,
@@ -320,7 +338,7 @@ void service_activations() noexcept {
                     position.data(),
                     sizeof position);
         (void)g_factory(&result, descriptor);
-        if (result != kInvalidDatum) {
+        if (result != kInvalidDatum && needs_activation(tag)) {
             queue_activation(result, rotation, position);
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -434,8 +452,8 @@ void poll_shortcuts() noexcept {
     }
 }
 
-void __fastcall summon_update(void* object, void* input, void* authored) noexcept {
-    const auto next = reinterpret_cast<SummonUpdate>(g_updateHook.original);
+void __fastcall player_component_update(void* object, void* input, void* authored) noexcept {
+    const auto next = reinterpret_cast<PlayerComponentUpdate>(g_updateHook.original);
     if (next != nullptr) {
         next(object, input, authored);
     }
@@ -472,7 +490,8 @@ bool install() noexcept {
     std::byte* const transform =
         scan_main_image_unique(kObjectTransform, "spawn_object_transform");
     std::byte* const raycast = scan_main_image_unique(kWorldRaycast, "spawn_world_raycast");
-    std::byte* const update = scan_main_image_unique(kSummonUpdate, "spawn_summon_update");
+    std::byte* const update =
+        scan_main_image_unique(kPlayerComponentUpdate, "spawn_player_component_update");
     if (initialize == nullptr || direct == nullptr || factory == nullptr || transform == nullptr
         || raycast == nullptr || update == nullptr) {
         core::log::write(core::log::Channel::client,
@@ -490,7 +509,7 @@ bool install() noexcept {
     g_gameModule = GetModuleHandleW(nullptr);
     if (g_resolver == nullptr || g_gameModule == nullptr
         || !hooking::detour::install(
-            {update, reinterpret_cast<void*>(&summon_update)}, g_updateHook)) {
+            {update, reinterpret_cast<void*>(&player_component_update)}, g_updateHook)) {
         uninstall();
         core::log::write(core::log::Channel::client,
                          core::log::Level::warn,

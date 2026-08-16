@@ -424,7 +424,7 @@ void refresh() noexcept {
                : "[None]";
 }
 
-void draw_settings(Column& column, const char* id) noexcept {
+void draw_settings(Column& column, const char* id, bool showSpawnAll) noexcept {
     ImGui::PushID(id);
     ImGui::TextUnformatted("Amount:");
     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -459,7 +459,8 @@ void draw_settings(Column& column, const char* id) noexcept {
         ImGui::TreePop();
     }
 
-    if (ImGui::TreeNodeEx("Spawn All [unstable]", ImGuiTreeNodeFlags_SpanAvailWidth)) {
+    if (showSpawnAll
+        && ImGui::TreeNodeEx("Spawn All [unstable]", ImGuiTreeNodeFlags_SpanAvailWidth)) {
         ImGui::TextUnformatted("Items per row:");
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::DragInt("##items_per_row", &column.perRow, 1.0F, 1, 4096, "%d");
@@ -515,6 +516,7 @@ void draw_column(const char* title,
                  Column& column,
                  spawn_keys::Action playerAction,
                  spawn_keys::Action crosshairAction,
+                 bool showSpawnAll,
                  spawn_keys::Keybinds& keybinds,
                  bool& keybindsChanged) noexcept {
     ImGui::PushID(id);
@@ -545,7 +547,7 @@ void draw_column(const char* title,
     native::configure_shortcut(playerAction, selectedTag, amount, column.settings);
     native::configure_shortcut(crosshairAction, selectedTag, amount, column.settings);
     draw_keybinds(playerAction, crosshairAction, keybinds, keybindsChanged);
-    draw_settings(column, "settings");
+    draw_settings(column, "settings", showSpawnAll);
     ImGui::PopID();
 }
 
@@ -583,6 +585,7 @@ void draw() noexcept {
                     g_main,
                     spawn_keys::Action::mainPlayer,
                     spawn_keys::Action::mainCrosshair,
+                    false,
                     keybinds,
                     keybindsChanged);
         ImGui::TableNextColumn();
@@ -591,6 +594,7 @@ void draw() noexcept {
                     g_projectile,
                     spawn_keys::Action::projectilePlayer,
                     spawn_keys::Action::projectileCrosshair,
+                    true,
                     keybinds,
                     keybindsChanged);
         ImGui::TableNextColumn();
@@ -599,6 +603,7 @@ void draw() noexcept {
                     g_loot,
                     spawn_keys::Action::lootPlayer,
                     spawn_keys::Action::lootCrosshair,
+                    true,
                     keybinds,
                     keybindsChanged);
         ImGui::EndTable();
