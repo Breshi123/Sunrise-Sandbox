@@ -6,6 +6,14 @@
 
 namespace sunrise::client::hooks::teleport {
 
+/** Three floats make one position or velocity vector. */
+inline constexpr std::size_t kVectorLanes = 3;
+/** The vertical lane. The camera basis is X forward, Z up, so the third lane is up. */
+inline constexpr std::size_t kVerticalLane = 2;
+
+/** One world-space vector as the game stores it. */
+using Vector = std::array<float, kVectorLanes>;
+
 /** Writes the local player's controlled-object handle, or the invalid sentinel. */
 using ControlledHandle = std::uint32_t* (*)(std::uint32_t*);
 /** Returns the camera pose block array. The pointer in its global is obfuscated, so we call it. */
@@ -87,5 +95,44 @@ void apply_pending(void* component) noexcept;
  * has to act on the player's own tick needs the same test this module already performs.
  */
 [[nodiscard]] bool owns_local_player(void* component) noexcept;
+
+/**
+ * Reads the world position of the body a physics component drives.
+ * @param component Physics component.
+ * @param position Receives the three lanes.
+ * @return True when the body was found and read.
+ */
+[[nodiscard]] bool read_position(void* component, Vector& position) noexcept;
+
+/**
+ * Writes the world position of the body a physics component drives.
+ * @param component Physics component.
+ * @param position Three lanes to store.
+ * @return True when the body was found and written.
+ */
+[[nodiscard]] bool write_position(void* component, const Vector& position) noexcept;
+
+/**
+ * Reads the linear velocity of the body a physics component drives.
+ * @param component Physics component.
+ * @param velocity Receives the three lanes.
+ * @return True when the body was found and read.
+ */
+[[nodiscard]] bool read_velocity(void* component, Vector& velocity) noexcept;
+
+/**
+ * Writes the linear velocity of the body a physics component drives.
+ * @param component Physics component.
+ * @param velocity Three lanes to store.
+ * @return True when the body was found and written.
+ */
+[[nodiscard]] bool write_velocity(void* component, const Vector& velocity) noexcept;
+
+/**
+ * The camera hook is the only site that sees the pose block, so it publishes the vector here.
+ * @param forward Receives the camera forward vector published this frame.
+ * @return True once the camera hook has published one.
+ */
+[[nodiscard]] bool camera_forward(Vector& forward) noexcept;
 
 } // namespace sunrise::client::hooks::teleport

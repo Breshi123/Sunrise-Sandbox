@@ -17,8 +17,8 @@
 #include "../../../core/ui/runtime/ui_visibility_runtime.h"
 #include "../../../state/account/account_state.h"
 #include "../../../state/runtime/runtime.h"
+#include "../../input/window_focus.h"
 #include "../../movement/movement_settings_store.h"
-#include "../noclip/runtime.h"
 #include "../polled_input/runtime.h"
 #include "internal.h"
 #include "runtime.h"
@@ -431,7 +431,8 @@ void poll_request() noexcept {
         g_keyDown.store(false, std::memory_order_relaxed);
         return;
     }
-    const bool down = (GetAsyncKeyState(static_cast<int>(settings.virtualKey)) & 0x8000) != 0;
+    const bool down = client::input::game_focused()
+                      && (GetAsyncKeyState(static_cast<int>(settings.virtualKey)) & 0x8000) != 0;
     if (down && !g_keyDown.exchange(down, std::memory_order_relaxed)) {
         g_requestAge.store(0, std::memory_order_relaxed);
         g_requested.store(true, std::memory_order_release);
@@ -465,9 +466,7 @@ void apply_pending(void* component) noexcept {
         return;
     }
     g_requested.store(false, std::memory_order_release);
-    if (perform_move(physics)) {
-        noclip::invalidate_target();
-    }
+    (void)perform_move(physics);
 }
 
 /** Runs the move for a request no physics tick collected. */
@@ -486,7 +485,6 @@ void force_pending() noexcept {
     if (!perform_move(physics)) {
         return;
     }
-    noclip::invalidate_target();
     invoke_sync(physics);
     core::log::write(
         core::log::Channel::client, core::log::Level::info, "ev=teleport stage=force result=ok");
@@ -496,6 +494,51 @@ void force_pending() noexcept {
 bool owns_local_player(void* component) noexcept {
     return component != nullptr && g_controlledHandle != nullptr
            && owns_player(static_cast<std::byte*>(component));
+}
+
+/** Reads the world position of the body a physics component drives. */
+bool read_position(void* component, Vector& position) noexcept {
+    if (component == nullptr) {
+        return false;
+    }
+    std::byte* const body = body_of(static_cast<std::byte*>(component));
+    return body != nullptr && read_at(body + kBodyPositionX, position);
+}
+
+/** Writes the world position of the body a physics component drives. */
+bool write_position(void* component, const Vector& position) noexcept {
+    if (component == nullptr) {
+        return false;
+    }
+    std::byte* const body = body_of(static_cast<std::byte*>(component));
+    return body != nullptr && write_vector(body + kBodyPositionX, position);
+}
+
+/** Reads the linear velocity of the body a physics component drives. */
+bool read_velocity(void* component, Vector& velocity) noexcept {
+    if (component == nullptr) {
+        return false;
+    }
+    std::byte* const body = body_of(static_cast<std::byte*>(component));
+    return body != nullptr && read_at(body + kBodyVelocityX, velocity);
+}
+
+/** Writes the linear velocity of the body a physics component drives. */
+bool write_velocity(void* component, const Vector& velocity) noexcept {
+    if (component == nullptr) {
+        return false;
+    }
+    std::byte* const body = body_of(static_cast<std::byte*>(component));
+    return body != nullptr && write_vector(body + kBodyVelocityX, velocity);
+}
+
+/** Reports the camera forward vector published this frame. */
+bool camera_forward(Vector& forward) noexcept {
+    if (!g_forwardValid.load(std::memory_order_acquire)) {
+        return false;
+    }
+    forward = g_forward;
+    return true;
 }
 
 } // namespace sunrise::client::hooks::teleport
