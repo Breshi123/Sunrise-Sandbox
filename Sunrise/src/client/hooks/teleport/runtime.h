@@ -105,6 +105,13 @@ void apply_pending(void* component) noexcept;
 [[nodiscard]] bool read_position(void* component, Vector& position) noexcept;
 
 /**
+ * Reports the physics component the local player was last seen driving.
+ * The sync stops for a player at rest, so a frame poll has no other way back to them.
+ * @return That component, or null before the player has been seen. Prove it before use.
+ */
+[[nodiscard]] void* local_player_component() noexcept;
+
+/**
  * Writes the world position of the body a physics component drives.
  * @param component Physics component.
  * @param position Three lanes to store.

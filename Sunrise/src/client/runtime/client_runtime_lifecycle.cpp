@@ -6,6 +6,7 @@
 #include "../hooks/config_getter/config_getter_lifecycle.h"
 #include "../hooks/cursor/runtime.h"
 #include "../hooks/graphics/graphics_hook_lifecycle.h"
+#include "../hooks/infinite_ammo/infinite_ammo.h"
 #include "../hooks/network/runtime.h"
 #include "../hooks/noclip/runtime.h"
 #include "../hooks/package_trust/package_trust_bypass.h"
@@ -16,6 +17,7 @@
 #include "../hooks/teleport/runtime.h"
 #include "../movement/movement_settings_store.h"
 #include "../spawn/spawn_keybind_store.h"
+#include "../player/player_settings_store.h"
 #include "../targets/game.h"
 #include "../targets/steam_targets.h"
 #include "../ui/runtime/client_ui_module_runtime.h"
@@ -26,9 +28,10 @@ namespace sunrise::client {
 
 /** Initializes Client-owned process state without installing hooks. */
 bool initialize(void* module) noexcept {
-    // Loaded before the pages register, so the movement page draws saved values on its first frame.
+    // Loaded before the pages register, so each page draws saved values on its first frame.
     movement::initialize(module);
     spawn::initialize(module);
+    player::initialize(module);
     return ui::runtime::initialize();
 }
 
@@ -61,6 +64,7 @@ bool shutdown() noexcept {
     }
     hooks::bitmap::uninstall();
     hooks::bootflow::uninstall();
+    hooks::infinite_ammo::uninstall();
     hooks::noclip::uninstall();
     hooks::spawn::uninstall();
     hooks::teleport::uninstall();
@@ -100,6 +104,7 @@ bool shutdown() noexcept {
     runtime::g_platformStage = runtime::StageState::pending;
     ui::runtime::shutdown();
     spawn::shutdown();
+    player::shutdown();
     movement::shutdown();
     core::log::write(core::log::Channel::client, core::log::Level::info, "ev=shutdown result=ok");
     ReleaseSRWLockExclusive(&runtime::g_lock);

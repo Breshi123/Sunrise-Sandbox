@@ -113,7 +113,8 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
         || !scenarios::replace(domains.scenarios, domains.rosterGroups)
         // An empty catalog is complete, so the spawn-set replace is skipped rather than failed.
         || (!domains.spawnStems.empty()
-            && !spawn_sets::replace(domains.spawnStems, domains.spawnNameHashes))
+            && !spawn_sets::replace(
+                domains.spawnStems, domains.spawnNameHashes, domains.spawnPoints))
         // An empty catalog is complete, so the vendor replace is skipped rather than failed.
         || (!domains.vendorIndex.empty()
             && !vendors::replace(domains.vendorIndex,

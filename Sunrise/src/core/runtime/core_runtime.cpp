@@ -19,6 +19,7 @@
 #include "../filesystem/path.h"
 #include "../logging/log.h"
 #include "../settings/settings.h"
+#include "../ui/modules/hud/hud.h"
 #include "../ui/modules/logs/logs.h"
 #include "../ui/modules/registry/ui_module_registry.h"
 #include "../ui/runtime/ui_visibility_runtime.h"
@@ -106,6 +107,9 @@ bool initialize(void* module) noexcept {
         log::write(log::Channel::core, log::Level::debug, "ev=initialize phase=begin");
         if (!ui::runtime::initialize(settings::get().client.userInterface)) {
             stage = "ui";
+        } else if (!ui::modules::hud::initialize(module)) {
+            // Registered before logs, which is the order the menu lists the Core pages in.
+            stage = "ui_hud";
         } else if (!ui::modules::logs::initialize()) {
             stage = "ui_logs";
         } else if (!state::entitlements::publish(settings::get().server.entitlements)) {
@@ -138,6 +142,7 @@ bool initialize(void* module) noexcept {
         state::shutdown();
         state::entitlements::clear();
         ui::modules::logs::shutdown();
+        ui::modules::hud::shutdown();
         ui::modules::registry::shutdown();
         ui::runtime::shutdown();
         state::unlocks::clear();
@@ -172,6 +177,7 @@ bool shutdown() noexcept {
     state::shutdown();
     state::entitlements::clear();
     ui::modules::logs::shutdown();
+    ui::modules::hud::shutdown();
     ui::modules::registry::shutdown();
     ui::runtime::shutdown();
     log::write(log::Channel::core, log::Level::info, "ev=shutdown result=ok");

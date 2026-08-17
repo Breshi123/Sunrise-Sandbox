@@ -490,6 +490,11 @@ void force_pending() noexcept {
         core::log::Channel::client, core::log::Level::info, "ev=teleport stage=force result=ok");
 }
 
+/** Reports the physics component the local player was last seen driving. */
+void* local_player_component() noexcept {
+    return g_playerComponent.load(std::memory_order_relaxed);
+}
+
 /** @param component Candidate physics component. @return True when the local player drives it. */
 bool owns_local_player(void* component) noexcept {
     return component != nullptr && g_controlledHandle != nullptr

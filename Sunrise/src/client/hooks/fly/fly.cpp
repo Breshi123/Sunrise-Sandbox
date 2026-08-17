@@ -129,8 +129,7 @@ bool g_steered{false};
 }
 
 /**
- * Forward turned about the up axis. Which turn is right is unverified: if strafing is mirrored,
- * negate both lanes.
+ * Forward turned about the up axis. This turn is the player's right, confirmed in flight.
  * @return The strafe axis, or zeroes when the camera looks straight up or down.
  */
 [[nodiscard]] teleport::Vector right_of(const teleport::Vector& forward) noexcept {

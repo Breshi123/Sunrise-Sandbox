@@ -99,6 +99,13 @@ void bind_view(std::uint64_t sessionId, const state::gameplay::ViewSignature& si
 [[nodiscard]] bool view_bound(std::uint64_t sessionId) noexcept;
 
 /**
+ * Reports how far the link carrying one group session has got.
+ * @param stage Receives the stage, or the absent one when no link carries the session.
+ * @return True when a link carries it.
+ */
+[[nodiscard]] bool link_stage(std::uint64_t sessionId, state::gameplay::PeerStage& stage) noexcept;
+
+/**
  * Sends any owed acknowledgement.
  * Without it the peer keeps retransmitting every reliable message it has sent.
  * @param now Monotonic tick count in milliseconds.
