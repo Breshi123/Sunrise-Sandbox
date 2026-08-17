@@ -56,7 +56,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>kernel32.lib;bcrypt.lib;user32.lib;gdi32.lib;dwmapi.lib;d3dcompiler.lib;shell32.lib;ws2_32.lib;synchronization.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>kernel32.lib;bcrypt.lib;user32.lib;gdi32.lib;dwmapi.lib;d3dcompiler.lib;shell32.lib;ws2_32.lib;synchronization.lib;ole32.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
@@ -88,6 +88,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="resources\default_settings.json" />
+    <None Include="resources\logo_sheet.png" />
     <None Include="vendor\detours\LICENSE.md" />
     <None Include="vendor\imgui\LICENSE.txt" />
   </ItemGroup>
@@ -120,6 +121,7 @@
     <ClCompile Include="src\core\settings\state\key_bindings_parser.cpp" />
     <ClCompile Include="src\core\settings\state\social_parser.cpp" />
     <ClCompile Include="src\core\runtime\core_runtime.cpp" />
+    <ClCompile Include="src\core\runtime\host_environment.cpp" />
     <ClCompile Include="src\core\ui\modules\ui_module_descriptor.cpp" />
     <ClCompile Include="src\core\ui\modules\registry\ui_module_registry.cpp" />
     <ClCompile Include="src\core\ui\modules\logs\logs_module_runtime.cpp" />
@@ -137,10 +139,23 @@
     <ClCompile Include="src\state\runtime\state_account_runtime.cpp" />
     <ClCompile Include="src\state\runtime\state_account_acquisition_runtime.cpp" />
     <ClCompile Include="src\state\runtime\state_account_dismantle_runtime.cpp" />
+    <ClCompile Include="src\state\runtime\state_account_dismantle_staging.cpp" />
+    <ClCompile Include="src\state\runtime\state_account_equipment_runtime.cpp" />
+    <ClCompile Include="src\state\runtime\state_account_identity_runtime.cpp" />
+    <ClCompile Include="src\state\runtime\state_account_profile_runtime.cpp" />
+    <ClCompile Include="src\state\runtime\state_account_socket_runtime.cpp" />
     <ClCompile Include="src\state\runtime\state_account_item_action_runtime.cpp" />
     <ClCompile Include="src\core\ui\busy\ui_busy_overlay.cpp" />
     <ClCompile Include="src\core\ui\busy\ui_busy_state.cpp" />
     <ClCompile Include="src\core\ui\notice\ui_notice_overlay.cpp" />
+    <ClCompile Include="src\core\ui\hud\ui_hud_overlay_stack.cpp" />
+    <ClCompile Include="src\core\ui\hud\overlays\ui_hud_logo_overlay.cpp" />
+    <ClCompile Include="src\core\ui\hud\overlays\ui_hud_session_overlay.cpp" />
+    <ClCompile Include="src\core\ui\hud\overlays\ui_hud_status_overlay.cpp" />
+    <ClCompile Include="src\core\ui\hud\store\hud_settings_store.cpp" />
+    <ClCompile Include="src\core\ui\textures\ui_texture_slots.cpp" />
+    <ClCompile Include="src\core\ui\modules\hud\hud_module_runtime.cpp" />
+    <ClCompile Include="src\core\ui\modules\hud\hud_panel_render.cpp" />
     <ClCompile Include="src\core\ui\modules\logs\logs_panel_render.cpp" />
     <ClCompile Include="src\core\ui\modules\logs\filters\logs_filter_controls.cpp" />
     <ClCompile Include="src\core\ui\runtime\ui_visibility_runtime.cpp" />
@@ -149,6 +164,7 @@
     <ClCompile Include="src\core\ui\animation\transition\ui_transition_animation.cpp" />
     <ClCompile Include="src\core\ui\components\card\ui_card_component.cpp" />
     <ClCompile Include="src\core\ui\components\filter\ui_filter_component.cpp" />
+    <ClCompile Include="src\core\ui\components\logo\ui_logo_component.cpp" />
     <ClCompile Include="src\core\ui\components\picker\ui_picker_component.cpp" />
     <ClCompile Include="src\core\ui\components\navigation\ui_navigation_component.cpp" />
     <ClCompile Include="src\core\ui\components\section\ui_section_component.cpp" />
@@ -169,6 +185,7 @@
     <ClCompile Include="src\client\hooks\graphics\graphics_hook_lifecycle.cpp" />
     <ClCompile Include="src\client\hooks\graphics\graphics_hook_replacements.cpp" />
     <ClCompile Include="src\client\hooks\graphics\input\graphics_window_input.cpp" />
+    <ClCompile Include="src\client\hooks\graphics\textures\graphics_texture_upload.cpp" />
     <ClCompile Include="src\client\hooks\graphics\input\graphics_raw_input_window.cpp" />
     <ClCompile Include="src\client\hooks\polled_input\polled_input_lifecycle.cpp" />
     <ClCompile Include="src\client\hooks\polled_input\polled_input_replacements.cpp" />
@@ -200,7 +217,14 @@
     <ClCompile Include="src\client\ui\runtime\client_ui_module_runtime.cpp" />
     <ClCompile Include="src\client\ui\movement\movement_panel.cpp" />
     <ClCompile Include="src\client\movement\movement_settings_store.cpp" />
+    <ClCompile Include="src\client\ui\player\player_panel.cpp" />
+    <ClCompile Include="src\client\player\player_position.cpp" />
+    <ClCompile Include="src\client\player\player_settings_store.cpp" />
     <ClCompile Include="src\client\hooks\noclip\horizontal_noclip.cpp" />
+    <ClCompile Include="src\client\hooks\sword_skate\sword_skate.cpp" />
+    <ClCompile Include="src\client\hooks\fly\fly.cpp" />
+    <ClCompile Include="src\client\hooks\infinite_ammo\infinite_ammo.cpp" />
+    <ClCompile Include="src\client\input\window_focus.cpp" />
     <ClCompile Include="src\client\hooks\teleport\teleport_lifecycle.cpp" />
     <ClCompile Include="src\client\hooks\teleport\teleport_move.cpp" />
     <ClCompile Include="src\client\hooks\teleport\teleport_action_key.cpp" />
@@ -247,6 +271,7 @@
     <ClCompile Include="src\client\hooks\network\http\http_worker_completion.cpp" />
     <ClCompile Include="src\client\hooks\network\signon\signon_readiness_replacements.cpp" />
     <ClCompile Include="src\client\patterns\game\signon\signon_readiness_signature_bytes.cpp" />
+    <ClCompile Include="src\client\graphics\wine_compat.cpp" />
     <ClCompile Include="src\core\settings\client\external\client_external_settings_parser.cpp" />
     <ClCompile Include="src\client\targets\game\game_retail_log_targets.cpp" />
     <ClCompile Include="src\client\patterns\game\retail_log\retail_log_signature_bytes.cpp" />
@@ -643,6 +668,7 @@
     <ClCompile Include="src\middleware\crypto\random_bytes.cpp" />
     <ClCompile Include="src\middleware\crypto\sha256.cpp" />
     <ClCompile Include="src\middleware\crypto\ecc_p224.cpp" />
+    <ClCompile Include="src\middleware\crypto\ecc_p224_curve.cpp" />
     <ClCompile Include="src\middleware\crypto\tiger192.cpp" />
     <ClCompile Include="src\middleware\crypto\aes_cbc.cpp" />
     <ClCompile Include="src\middleware\crypto\hmac.cpp" />
@@ -706,6 +732,7 @@
     <ClInclude Include="src\core\settings\server\definition.h" />
     <ClInclude Include="src\core\settings\steam\definition.h" />
     <ClInclude Include="src\core\runtime\core_runtime.h" />
+    <ClInclude Include="src\core\runtime\host_environment.h" />
     <ClInclude Include="src\core\ui\imgui_user_config.h" />
     <ClInclude Include="src\core\ui\modules\ui_module_descriptor.h" />
     <ClInclude Include="src\core\ui\modules\registry\ui_module_registry.h" />
@@ -722,6 +749,14 @@
     <ClInclude Include="src\core\ui\busy\busy.h" />
     <ClInclude Include="src\core\ui\busy\ui_busy_state.h" />
     <ClInclude Include="src\core\ui\notice\ui_notice_overlay.h" />
+    <ClInclude Include="src\core\ui\hud\overlay.h" />
+    <ClInclude Include="src\core\ui\hud\overlays\ui_hud_logo_overlay.h" />
+    <ClInclude Include="src\core\ui\hud\overlays\ui_hud_session_overlay.h" />
+    <ClInclude Include="src\core\ui\hud\overlays\ui_hud_status_overlay.h" />
+    <ClInclude Include="src\core\ui\hud\store\hud_settings_store.h" />
+    <ClInclude Include="src\core\ui\textures\ui_texture_slots.h" />
+    <ClInclude Include="src\core\ui\modules\hud\hud.h" />
+    <ClInclude Include="src\core\ui\modules\hud\internal.h" />
     <ClInclude Include="src\core\ui\modules\logs\internal.h" />
     <ClInclude Include="src\core\ui\modules\logs\filters\logs_filter_controls.h" />
     <ClInclude Include="src\core\ui\runtime\ui_visibility_runtime.h" />
@@ -734,6 +769,8 @@
     <ClInclude Include="src\core\ui\components\card\ui_card_component.h" />
     <ClInclude Include="src\core\ui\components\drawing\drawing.h" />
     <ClInclude Include="src\core\ui\components\filter\ui_filter_component.h" />
+    <ClInclude Include="src\core\ui\components\label\ui_label_component.h" />
+    <ClInclude Include="src\core\ui\components\logo\ui_logo_component.h" />
     <ClInclude Include="src\core\ui\components\picker\ui_picker_component.h" />
     <ClInclude Include="src\core\ui\components\navigation\ui_navigation_component.h" />
     <ClInclude Include="src\core\ui\components\section\ui_section_component.h" />
@@ -750,7 +787,14 @@
     <ClInclude Include="src\core\ui\layout\credits\sunrise_credits_badge.h" />
     <ClInclude Include="src\client\runtime\runtime.h" />
     <ClInclude Include="src\client\movement\movement_settings_store.h" />
+    <ClInclude Include="src\client\ui\player\player_panel.h" />
+    <ClInclude Include="src\client\player\player_position.h" />
+    <ClInclude Include="src\client\player\player_settings_store.h" />
     <ClInclude Include="src\client\hooks\noclip\runtime.h" />
+    <ClInclude Include="src\client\hooks\sword_skate\sword_skate.h" />
+    <ClInclude Include="src\client\hooks\fly\fly.h" />
+    <ClInclude Include="src\client\hooks\infinite_ammo\infinite_ammo.h" />
+    <ClInclude Include="src\client\input\window_focus.h" />
     <ClInclude Include="src\client\hooks\teleport\internal.h" />
     <ClInclude Include="src\client\hooks\teleport\runtime.h" />
     <ClInclude Include="src\client\ui\movement\movement_panel.h" />
@@ -759,6 +803,7 @@
     <ClInclude Include="src\client\hooks\graphics\graphics_hook_lifecycle.h" />
     <ClInclude Include="src\client\hooks\graphics\graphics_hook_replacements.h" />
     <ClInclude Include="src\client\hooks\graphics\input\input.h" />
+    <ClInclude Include="src\client\hooks\graphics\textures\graphics_texture_upload.h" />
     <ClInclude Include="src\client\hooks\graphics\renderer\renderer.h" />
     <ClInclude Include="src\client\hooks\graphics\renderer\state.h" />
     <ClInclude Include="src\client\hooks\graphics\renderer\graphics_renderer_report.h" />
@@ -1091,6 +1136,7 @@
     <ClInclude Include="src\client\patterns\game\config_getter\config_getter_signature_bytes.h" />
     <ClInclude Include="src\client\patterns\game\packages\package_key_signature_bytes.h" />
     <ClInclude Include="src\client\patterns\game\signon\signon_readiness_signature_bytes.h" />
+    <ClInclude Include="src\client\graphics\wine_compat.h" />
     <ClInclude Include="src\middleware\content\packages\tables\spawn_reader.h" />
     <ClInclude Include="src\middleware\content\packages\tables\component_container_reader.h" />
     <ClInclude Include="src\client\patterns\image_scan.h" />
@@ -1145,6 +1191,7 @@
     <ClInclude Include="src\middleware\crypto\random_bytes.h" />
     <ClInclude Include="src\middleware\crypto\sha256.h" />
     <ClInclude Include="src\middleware\crypto\ecc_p224.h" />
+    <ClInclude Include="src\middleware\crypto\ecc_p224_curve.h" />
     <ClInclude Include="src\middleware\crypto\tiger192.h" />
     <ClInclude Include="src\middleware\crypto\aes_cbc.h" />
     <ClInclude Include="src\middleware\crypto\hmac.h" />

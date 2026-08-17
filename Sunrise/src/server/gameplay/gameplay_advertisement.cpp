@@ -164,7 +164,8 @@ void report_outcome(Skip skip,
     // `public_activity_host_mismatch` when they disagree, so both carry the same allocated id.
     // The key is the machine id, because that is what the peer echoes in every later message.
     bool claimedSlot = false;
-    const std::uint64_t hostSession = group::activity_host_session(join.machineId, claimedSlot);
+    const std::uint64_t hostSession =
+        group::activity_host_session(join.machineId, regionIndex, claimedSlot);
     if (hostSession == state::activity::kAbsentSessionId) {
         // A claimed slot is filled by the next service slice. An unclaimed one never will be, so
         // the two must not read the same to a caller deciding whether to wait.

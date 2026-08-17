@@ -1,3 +1,6 @@
+#include <string_view>
+
+#include "../../../../core/runtime/host_environment.h"
 #include "../dns/egress_dns_replacements.h"
 #include "../extensions/egress_extension_replacements.h"
 #include "../resolver/replacements.h"
@@ -19,6 +22,30 @@ export_definition(ModuleSlot module, const char* name, Function replacement) noe
     return ExportDefinition{module, name, reinterpret_cast<void*>(replacement)};
 }
 
+/** Winsock's own generic failure code, which a refused connection call answers with. */
+constexpr int kSocketError = -1;
+/** WSAHOST_NOT_FOUND. A refused name lookup answers with it, so nothing resolves an address. */
+constexpr int kHostNotFound = 11001;
+
+/**
+ * Stands in for one export Wine does not provide, so the guard still owns the call.
+ * Detours copies at least five bytes from a target, so the body must not fold away to a bare
+ * return. The volatile store is what keeps it long enough to detour.
+ * @return The refusal the real export would answer with.
+ */
+__declspec(noinline) int WSAAPI absent_connect_by_list() noexcept {
+    volatile int occupied = 0;
+    occupied += 1;
+    return kSocketError;
+}
+
+/** @return The refusal the real export would answer with. See absent_connect_by_list. */
+__declspec(noinline) int WSAAPI absent_address_info_ex_a() noexcept {
+    volatile int occupied = 0;
+    occupied += 1;
+    return kHostNotFound;
+}
+
 } // namespace
 
 /** Finds the whole Windows SDK egress surface for one atomic Detours batch. */
@@ -27,6 +54,8 @@ bool resolve_specs(std::span<hooking::detour::Spec, kHookCount> specs,
                    std::span<bool, kHookCount> resolved,
                    std::size_t& count) noexcept {
     count = 0;
+    const bool underWine = core::runtime::is_wine();
+
     const std::array<ExportDefinition, kHookCount> exports{
         export_definition(ModuleSlot::winsock, "connect", &winsock::connection::connect_socket),
         export_definition(
@@ -71,14 +100,29 @@ bool resolve_specs(std::span<hooking::detour::Spec, kHookCount> specs,
     for (std::size_t index = 0; index < exports.size(); ++index) {
         const ExportDefinition& definition = exports[index];
         const HMODULE module = module_handle(definition.module);
-        void* const target = reinterpret_cast<void*>(GetProcAddress(module, definition.name));
+        void* target = reinterpret_cast<void*>(GetProcAddress(module, definition.name));
         names[index] = definition.name;
-        resolved[index] = target != nullptr;
-        if (target == nullptr) {
-            // Older Windows builds cannot expose an egress path through an absent DnsQueryRaw.
-            return index == kRequiredHookCount;
+
+        // Wine does not export every name Windows does. A missing one still needs a target, or
+        // the guard would leave that call unowned.
+        if (target == nullptr && underWine) {
+            const std::string_view exportName(definition.name);
+            if (exportName == "WSAConnectByList") {
+                target = reinterpret_cast<void*>(&absent_connect_by_list);
+            } else if (exportName == "GetAddrInfoExA") {
+                target = reinterpret_cast<void*>(&absent_address_info_ex_a);
+            }
         }
-        specs[index] = hooking::detour::Spec{target, definition.replacement};
+
+        resolved[index] = target != nullptr;
+
+        if (target == nullptr) {
+            if (index < kRequiredHookCount) {
+                return false;
+            }
+            continue;
+        }
+        specs[count] = hooking::detour::Spec{target, definition.replacement};
         count = index + 1;
     }
     return count >= kRequiredHookCount;

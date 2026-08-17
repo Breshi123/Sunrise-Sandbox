@@ -46,6 +46,7 @@ struct Context {
     std::vector<scenarios::RosterGroup> rosterGroupScratch{};
     std::vector<spawn_sets::Stem> spawnStemScratch{};
     std::vector<spawn_sets::NameHash> spawnNameHashScratch{};
+    std::vector<spawn_sets::Point> spawnPointScratch{};
     std::vector<hash_names::Name> hashNameScratch{};
     std::vector<vendors::IndexEntry> vendorIndexScratch{};
     std::vector<vendors::Definition> vendorDefinitionScratch{};

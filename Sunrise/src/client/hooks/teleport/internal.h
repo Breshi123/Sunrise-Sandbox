@@ -52,9 +52,4 @@ inline constexpr std::size_t kBodyPositionX = 448;
 /** Rigid-body velocity. The sync copies this into the physics component every tick. */
 inline constexpr std::size_t kBodyVelocityX = 560;
 
-/** Three floats make one position or velocity vector. */
-inline constexpr std::size_t kVectorLanes = 3;
-/** The vertical lane, given the camera basis above. */
-inline constexpr std::size_t kVerticalLane = 2;
-
 } // namespace sunrise::client::hooks::teleport

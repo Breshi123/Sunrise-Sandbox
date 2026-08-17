@@ -18,6 +18,12 @@ struct ResolvedPosition {
     std::int32_t mutationSerial{};
 };
 
+/** Stable location of one character-owned item inside authored State. */
+struct CharacterItemLocation {
+    std::size_t index{};
+    bool equipped{};
+};
+
 void report_equipment(std::string_view stage,
                       std::string_view result,
                       EquipmentMutationKind kind,
@@ -159,5 +165,36 @@ find_acquired_row(const middleware::datagen::family4::loadout::ResolvedLoadout& 
                                               const PendingItemDismantle& mutation,
                                               AccountState& after) noexcept;
 [[nodiscard]] bool identity_uses_soid(const AccountState& account, std::uint64_t soid) noexcept;
+[[nodiscard]] bool holds_plug_source(const AccountState& account,
+                                     std::uint32_t definitionHash) noexcept;
+[[nodiscard]] bool spend_plug_source(AccountState& account, std::uint32_t definitionHash) noexcept;
+[[nodiscard]] bool
+apply_action_materials(const AccountState& before,
+                       const build_data::material_requirements::Definition& definition,
+                       AccountState& after,
+                       bool& changed) noexcept;
+[[nodiscard]] bool inventory_bucket_id(const account::inventory::Item& item,
+                                       std::uint8_t& bucketId) noexcept;
+[[nodiscard]] bool same_position(const ResolvedPosition& left,
+                                 const ResolvedPosition& right) noexcept;
+[[nodiscard]] bool same_stationary_item(const account::inventory::Item& left,
+                                        const account::inventory::Item& right) noexcept;
+[[nodiscard]] bool find_character_item_location(const CharacterState& character,
+                                                std::uint64_t instanceSoid,
+                                                CharacterItemLocation& location) noexcept;
+[[nodiscard]] const account::inventory::Item*
+character_item_at(const CharacterState& character, const CharacterItemLocation& location) noexcept;
+[[nodiscard]] account::inventory::Item*
+character_item_at(CharacterState& character, const CharacterItemLocation& location) noexcept;
+[[nodiscard]] std::uint32_t character_item_definition_hash(const CharacterState& character,
+                                                           std::uint64_t instanceSoid) noexcept;
+[[nodiscard]] bool
+find_unequipped_row(const middleware::datagen::family4::loadout::ResolvedLoadout& loadout,
+                    std::uint64_t instanceSoid,
+                    std::uint16_t& inventoryRow,
+                    std::uint8_t& equipmentSlot) noexcept;
+[[nodiscard]] bool
+loadout_contains(const middleware::datagen::family4::loadout::ResolvedLoadout& loadout,
+                 std::uint64_t instanceSoid) noexcept;
 
 } // namespace sunrise::state::runtime::detail

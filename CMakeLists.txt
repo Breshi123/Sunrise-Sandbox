@@ -15,8 +15,6 @@ file(GLOB_RECURSE VENDOR_SOURCES CONFIGURE_DEPENDS
     "Sunrise/vendor/detours/*.h"
     "Sunrise/vendor/imgui/*.cpp"
     "Sunrise/vendor/imgui/*.h"
-    "Sunrise/vendor/*/*LICENSE*"
-    "Sunrise/vendor/*/*LICENSE.txt"
 )
 file(GLOB_RECURSE RESOURCE_FILES CONFIGURE_DEPENDS
     "Sunrise/resources/*.rc"
@@ -44,10 +42,12 @@ endif()
 target_include_directories(steam_api64
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Sunrise/src"
 )
+
 # sunrise.rc names its payloads relative to itself, so its directory has to be on the include path.
 target_include_directories(steam_api64
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Sunrise/resources"
 )
+
 target_include_directories(steam_api64 SYSTEM PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/Sunrise/vendor/detours"
     "${CMAKE_CURRENT_SOURCE_DIR}/Sunrise/vendor/imgui"
@@ -96,9 +96,21 @@ if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     )
 endif()
 
+if(CMAKE_HOST_LINUX AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(steam_api64 PRIVATE
+        $<$<CONFIG:Debug>:/clang:-gdwarf>
+        $<$<CONFIG:Debug>:/clang:-g>
+    )
+
+    target_link_options(steam_api64 PRIVATE
+        $<$<CONFIG:Debug>:/DEBUG:DWARF>
+    )
+endif()
+
 target_link_libraries(steam_api64 PRIVATE
     kernel32 bcrypt user32 gdi32 dwmapi
     d3dcompiler shell32 ws2_32 synchronization
+    windowscodecs
 )
 
 set_target_properties(steam_api64 PROPERTIES

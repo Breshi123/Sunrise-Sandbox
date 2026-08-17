@@ -341,7 +341,7 @@ void answer_parameters(std::uint64_t sessionId, std::uint64_t requested) noexcep
     std::uint64_t carried = requested & wire::kEncodableParameters;
     // Claims the region's slot rather than only reading it, so a request arriving before the
     // advertisement still makes the service slice allocate one.
-    if (activity_host_session(sessionId) == state::activity::kAbsentSessionId) {
+    if (activity_host_session(sessionId, kUnknownRegion) == state::activity::kAbsentSessionId) {
         // See publish_activity_host: a zero host id is worse than no answer for this one.
         carried &= ~(std::uint64_t{1} << static_cast<std::uint8_t>(wire::Parameter::activityHost));
     }
@@ -701,6 +701,24 @@ bool publish_join_parameters(std::uint64_t sessionId) noexcept {
 /** Reports whether replication may produce entity output for one peer. */
 bool view_accepted(std::uint64_t sessionId) noexcept {
     return peer::view_bound(sessionId);
+}
+
+/** Copies every admitted group-session record. */
+void snapshot_admitted(std::span<AdmittedRow> output, std::size_t& count) noexcept {
+    count = 0;
+    AcquireSRWLockShared(&g_admittedLock);
+    for (const Admitted& entry : g_admitted) {
+        if (!entry.occupied || count >= output.size()) {
+            continue;
+        }
+        output[count] = {entry.sessionId,
+                         entry.endpoint,
+                         entry.joinComplete,
+                         entry.activityHostPublished,
+                         entry.playerPublished};
+        ++count;
+    }
+    ReleaseSRWLockShared(&g_admittedLock);
 }
 
 /** Clears every group-session record. */

@@ -1,9 +1,12 @@
+#include <Windows.h>
+
 #include <atomic>
 #include <cstdint>
 #include <string_view>
 
 #include "../../../core/logging/log.h"
 #include "../../../state/activity/runtime.h"
+#include "bootflow_hook_lifecycle.h"
 #include "internal.h"
 
 namespace sunrise::client::hooks::bootflow {
@@ -24,20 +27,49 @@ constexpr auto kStepSignature = signature<signature_length(kStepSignatureText)>(
 constexpr std::int32_t kActivityLoadFirst = 33;
 /** `activity:in_world`. The fade is armed by then, so a spawn now releases it. */
 constexpr std::int32_t kInWorld = 38;
+/** No step has been published. */
+constexpr std::int32_t kNoStep = -1;
+/** A published step older than this says nothing: the tick that publishes it has stopped. */
+constexpr std::uint64_t kStepStaleMs = 1'000;
 
 using GetStep = std::int64_t(__fastcall*)() noexcept;
 
 std::atomic<GetStep> g_step{nullptr};
+/** Last step the frame poll read, for readers that are not on the game thread. */
+std::atomic_int32_t g_publishedStep{kNoStep};
+/** Tick that step was read on. A stale value reads as out of world. */
+std::atomic_uint64_t g_publishedTick{0};
+
+/** @return The current step, or the absent one when the accessor is missing. */
+[[nodiscard]] std::int32_t read_step() noexcept {
+    const GetStep read = g_step.load(std::memory_order_acquire);
+    return read == nullptr ? kNoStep : static_cast<std::int32_t>(read() & 0xFFFFFFFF);
+}
 
 } // namespace
 
+/** Publishes the client's own boot-flow step. */
+void poll_world_step() noexcept {
+    g_publishedStep.store(read_step(), std::memory_order_relaxed);
+    g_publishedTick.store(GetTickCount64(), std::memory_order_release);
+}
+
+/** Reports whether the player is in a loaded destination. */
+bool in_world() noexcept {
+    if (g_publishedStep.load(std::memory_order_relaxed) != kInWorld) {
+        return false;
+    }
+    const std::uint64_t published = g_publishedTick.load(std::memory_order_acquire);
+    return published != 0 && GetTickCount64() - published < kStepStaleMs;
+}
+
 /** Maps the client's own boot-flow step onto the world phase. */
 void observe_world_step() noexcept {
-    const GetStep read = g_step.load(std::memory_order_acquire);
-    if (read == nullptr) {
+    // A missing accessor leaves the phase alone. A step of -1 is a real answer: off a destination.
+    if (g_step.load(std::memory_order_acquire) == nullptr) {
         return;
     }
-    const auto step = static_cast<std::int32_t>(read() & 0xFFFFFFFF);
+    const std::int32_t step = read_step();
     state::activity::WorldPhase phase = state::activity::WorldPhase::idle;
     if (step == kInWorld) {
         phase = state::activity::WorldPhase::arrived;

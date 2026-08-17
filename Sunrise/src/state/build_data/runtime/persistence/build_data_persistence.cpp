@@ -85,6 +85,7 @@ to_record(const constants::InvestmentConstants& value) noexcept {
            && scenarios::snapshot_groups(scratch.rosterGroups, counts.rosterGroups)
            && spawn_sets::snapshot(scratch.spawnStems, counts.spawnStems)
            && spawn_sets::snapshot_hashes(scratch.spawnNameHashes, counts.spawnNameHashes)
+           && spawn_sets::snapshot_points(scratch.spawnPoints, counts.spawnPoints)
            && hash_names::snapshot(scratch.hashNames, counts.hashNames)
            && vendors::snapshot_index(scratch.vendorIndex, counts.vendorIndex)
            && vendors::snapshot_definitions(scratch.vendorDefinitions, counts.vendorDefinitions)
@@ -162,6 +163,8 @@ cache::records::MutableDomains scratch_domains(Context& state) noexcept {
     const auto spawnNameHashes =
         ensure_scratch<spawn_sets::NameHash, spawn_sets::kNameHashCapacity>(
             state.spawnNameHashScratch);
+    const auto spawnPoints =
+        ensure_scratch<spawn_sets::Point, spawn_sets::kPointCapacity>(state.spawnPointScratch);
     const auto hashNames =
         ensure_scratch<hash_names::Name, hash_names::kNameCapacity>(state.hashNameScratch);
     const auto vendorIndex =
@@ -193,6 +196,7 @@ cache::records::MutableDomains scratch_domains(Context& state) noexcept {
         rosterGroups,
         spawnStems,
         spawnNameHashes,
+        spawnPoints,
         hashNames,
         vendorIndex,
         vendorDefinitions,
@@ -229,6 +233,7 @@ void release_scratch_locked(Context& state) noexcept {
     release_bank(state.rosterGroupScratch);
     release_bank(state.spawnStemScratch);
     release_bank(state.spawnNameHashScratch);
+    release_bank(state.spawnPointScratch);
     release_bank(state.hashNameScratch);
     release_bank(state.vendorIndexScratch);
     release_bank(state.vendorDefinitionScratch);
@@ -287,6 +292,7 @@ cache::records::Domains occupied_domains(Context& state,
         std::span<const spawn_sets::Stem>{state.spawnStemScratch.data(), counts.spawnStems},
         std::span<const spawn_sets::NameHash>{state.spawnNameHashScratch.data(),
                                               counts.spawnNameHashes},
+        std::span<const spawn_sets::Point>{state.spawnPointScratch.data(), counts.spawnPoints},
         std::span<const hash_names::Name>{state.hashNameScratch.data(), counts.hashNames},
         std::span<const vendors::IndexEntry>{state.vendorIndexScratch.data(), counts.vendorIndex},
         std::span<const vendors::Definition>{state.vendorDefinitionScratch.data(),

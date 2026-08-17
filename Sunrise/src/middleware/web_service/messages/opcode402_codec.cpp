@@ -19,9 +19,13 @@ constexpr std::uint8_t kQuantityWidth = 32;
 constexpr std::uint32_t kSingleQuantityWire = 0x80000001U;
 /** The action's own required flag, which is always set. */
 constexpr std::uint8_t kRequiredFlagWidth = 1;
-/** Pad runs closing the nested descriptor, its outer trailers, and the whole payload. */
-constexpr std::uint8_t kNestedPaddingWidth = 6;
-constexpr std::uint8_t kOuterTrailerWidth = 2;
+/**
+ * Bucket ordinal the request was raised from. It counts 0 upward across the character's buckets.
+ * The instance identity already names the item, so the ordinal is read and not acted on.
+ */
+constexpr std::uint8_t kBucketOrdinalWidth = 7;
+/** Pad runs closing the nested descriptor and the whole payload. */
+constexpr std::uint8_t kNestedPaddingWidth = 1;
 constexpr std::uint8_t kFinalPaddingWidth = 6;
 
 } // namespace
@@ -39,8 +43,8 @@ bool parse_request(const Message& message, Request& request) noexcept {
     std::uint64_t encodedDefinitionIndex = 0;
     std::uint64_t encodedQuantity = 0;
     std::uint64_t requiredFlag = 0;
+    std::uint64_t bucketOrdinal = 0;
     std::uint64_t nestedPadding = 0;
-    std::uint64_t outerTrailers = 0;
     std::uint64_t finalPadding = 0;
     const bool read =
         message.payload.size() == kPayloadSize && reader.read(1, instancePresent)
@@ -48,8 +52,8 @@ bool parse_request(const Message& message, Request& request) noexcept {
         && reader.read(kDefinitionIndexWidth, encodedDefinitionIndex)
         && reader.read(kQuantityWidth, encodedQuantity)
         && reader.read(kRequiredFlagWidth, requiredFlag)
+        && reader.read(kBucketOrdinalWidth, bucketOrdinal)
         && reader.read(kNestedPaddingWidth, nestedPadding)
-        && reader.read(kOuterTrailerWidth, outerTrailers)
         && reader.read(kFinalPaddingWidth, finalPadding) && reader.remaining_bits() == 0;
 
     // Whatever the read reached is kept, so a refused request still describes itself.
@@ -59,7 +63,7 @@ bool parse_request(const Message& message, Request& request) noexcept {
     }
 
     return read && instancePresent != 0 && definitionPresent != 0 && instanceSoid != 0
-           && nestedPadding == 0 && outerTrailers == 0 && finalPadding == 0
+           && nestedPadding == 0 && finalPadding == 0
            && static_cast<std::uint32_t>(encodedQuantity) == kSingleQuantityWire
            && requiredFlag == 1;
 }

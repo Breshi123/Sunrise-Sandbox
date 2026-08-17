@@ -13,7 +13,11 @@
 
 #include "../../../core/logging/log.h"
 #include "../../hooking/detour.h"
+#include "../../player/player_position.h"
+#include "../bootflow/bootflow_hook_lifecycle.h"
+#include "../fly/fly.h"
 #include "../polled_input/runtime.h"
+#include "../sword_skate/sword_skate.h"
 #include "internal.h"
 #include "runtime.h"
 
@@ -77,6 +81,10 @@ std::int64_t __fastcall camera_transform(std::uint32_t playerIndex) noexcept {
     capture_forward(playerIndex);
     poll_request();
     force_pending();
+    // Read here, not on the physics tick: that tick stops for a player who is standing still.
+    hooks::fly::poll_toggle();
+    client::player::position::poll();
+    hooks::bootflow::poll_world_step();
     return result;
 }
 
@@ -89,6 +97,12 @@ std::int64_t __fastcall camera_transform(std::uint32_t playerIndex) noexcept {
  */
 std::int64_t __fastcall physics_sync(std::byte* component, std::byte* outFlags) noexcept {
     apply_pending(component);
+    // Shares this detour rather than adding a second one to the same function. The flag it clears
+    // is written and read inside this tick, so it has to run here and not on a frame poll.
+    hooks::sword_skate::apply(component);
+    hooks::fly::apply(component);
+    // This tick is the only one that sees every component, so it is where the player's is found.
+    client::player::position::observe(component);
     const PhysicsSync next = original<PhysicsSync>(kPhysicsSlot);
     return next != nullptr ? next(component, outFlags) : 0;
 }
@@ -186,6 +200,8 @@ void uninstall() noexcept {
     }
     clear_targets();
     clear_action_keys();
+    hooks::fly::reset();
+    client::player::position::reset();
     polled_input::release_key();
     (void)hooking::detour::uninstall(g_handles);
     g_handles = {};

@@ -184,6 +184,8 @@ constexpr std::array<ViewFormat, 6> kTypelessViewFormats{
         return discard_staged(staged);
     }
     staged.dx11BackendInitialized = true;
+    // The interface draws its card without the logo when the sheet cannot be uploaded.
+    (void)textures::upload_logo_sheet(staged.device, staged.logoSheet);
     if (!input::install(staged.window)) {
         report::note(report::Stage::init, report::Reason::windowInput);
         return discard_staged(staged);
@@ -246,6 +248,7 @@ void release_render_target(Resources& resources) noexcept {
 /** @param resources SDK resources freed in an order that respects their dependencies. */
 void release_resources(Resources& resources) noexcept {
     release_render_target(resources);
+    textures::release_logo_sheet(resources.logoSheet);
     release_com(resources.context);
     release_com(resources.device);
     release_com(resources.swapChain);

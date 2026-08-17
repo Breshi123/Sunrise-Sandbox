@@ -790,6 +790,19 @@ bool view_bound(std::uint64_t sessionId) noexcept {
     return bound;
 }
 
+/** Reports how far the link carrying one group session has got. */
+bool link_stage(std::uint64_t sessionId, state::gameplay::PeerStage& stage) noexcept {
+    stage = state::gameplay::PeerStage::absent;
+    AcquireSRWLockShared(&g_lock);
+    const state::gameplay::PeerLink* peer = find_session_locked(sessionId);
+    const bool present = peer != nullptr;
+    if (present) {
+        stage = peer->stage;
+    }
+    ReleaseSRWLockShared(&g_lock);
+    return present;
+}
+
 /** Sends any owed acknowledgement. */
 void service(std::uint64_t now) noexcept {
     std::array<state::gameplay::PeerLink, state::gameplay::kAssociationCapacity> owed{};

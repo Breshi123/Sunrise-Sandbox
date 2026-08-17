@@ -46,20 +46,39 @@ namespace sunrise::server::gameplay::group {
  * change while the region keeps its slot, or the peer errors `public_activity_host_mismatch`.
  * @param groupSessionId Session the peer names for this region, which is the descriptor's machine
  *        id and not its session id.
+ * @param regionIndex Region being advertised, or kUnknownRegion.
  * @return Allocated session id, or zero while State cannot allocate one yet.
  */
-[[nodiscard]] std::uint64_t activity_host_session(std::uint64_t groupSessionId) noexcept;
+[[nodiscard]] std::uint64_t activity_host_session(std::uint64_t groupSessionId,
+                                                  std::int32_t regionIndex) noexcept;
 
 /**
  * Reports one region's activity session and whether it holds a table slot at all.
  * A caller that waits for the session needs the difference. Without a slot nothing will ever
  * allocate one, so waiting never ends.
  * @param groupSessionId Session the peer names for this region.
+ * @param regionIndex Region being advertised, or kUnknownRegion.
  * @param claimedSlot Set when a slot names this region, with or without a session in it yet.
  * @return Allocated session id, or zero while the slot has none.
  */
 [[nodiscard]] std::uint64_t activity_host_session(std::uint64_t groupSessionId,
+                                                  std::int32_t regionIndex,
                                                   bool& claimedSlot) noexcept;
+
+/** One admitted peer's group session and how far its join has got. */
+struct AdmittedRow {
+    std::uint64_t sessionId{};
+    state::gameplay::Endpoint endpoint{};
+    /** Set once the peer reported its join finished. */
+    bool joinComplete{};
+    /** Set once the `activity-host` parameter is on the peer's reliable channel. */
+    bool activityHostPublished{};
+    /** Set once a snapshot naming the peer's player is on that channel. */
+    bool playerPublished{};
+};
+
+/** Copies every admitted group-session record. @param count Receives the copied row count. */
+void snapshot_admitted(std::span<AdmittedRow> output, std::size_t& count) noexcept;
 
 /**
  * Retries any publish the reliable queue refused, on a timer.

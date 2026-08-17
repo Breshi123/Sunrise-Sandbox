@@ -3,8 +3,10 @@
 #include <Windows.h>
 
 #include <algorithm>
-#include <bcrypt.h>
 #include <vector>
+
+#include "ecc_p224_curve.h"
+#include "random_bytes.h"
 
 namespace sunrise::middleware::crypto::ecc {
 
@@ -21,15 +23,11 @@ constexpr std::array<std::byte, 4> kPublicFlagBits{
     kTagBitString, std::byte{0x02}, std::byte{0x07}, std::byte{0x00}};
 /** A DER length below this fits in the single byte that follows the tag. */
 constexpr std::size_t kShortFormLimit = 0x80;
-/** Bits in one byte. */
-constexpr unsigned kByteBits = 8;
-/** Public key blobs name the curve rather than carry its parameters. */
-constexpr ULONG kGenericPublicMagic = 0x504B4345;
-
-/** @return True for a BCrypt status that reports success. */
-[[nodiscard]] bool succeeded(NTSTATUS status) noexcept {
-    return status >= 0;
-}
+/**
+ * Draws allowed while sampling a private key. A draw outside 1 to n-1 is rarer than one in 2^112,
+ * so reaching the limit means the system randomness is broken, not that the sampling was unlucky.
+ */
+constexpr unsigned kScalarAttempts = 4;
 
 /**
  * Appends one positive integer in the minimal form DER requires.
@@ -161,86 +159,25 @@ void append_integer(std::vector<std::byte>& output, std::span<const std::byte> v
 }
 
 /**
- * Opens the agreement algorithm bound to this curve.
- * @param output Receives the provider handle only on success.
- * @return True when Windows offers the curve.
+ * Draws one private key from system randomness.
+ * @param output Receives a scalar in 1 to n-1, or stays zero.
+ * @return True when a usable scalar was drawn.
  */
-[[nodiscard]] bool open_provider(BCRYPT_ALG_HANDLE& output) noexcept {
-    BCRYPT_ALG_HANDLE algorithm = nullptr;
-    if (!succeeded(BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_ECDH_ALGORITHM, nullptr, 0))) {
-        return false;
+[[nodiscard]] bool generate_scalar(curve::Field& output) noexcept {
+    std::array<std::byte, kFieldSize> drawn{};
+    for (unsigned attempt = 0; attempt < kScalarAttempts; ++attempt) {
+        if (!random::fill(drawn)) {
+            break;
+        }
+        curve::load(drawn, output);
+        SecureZeroMemory(drawn.data(), drawn.size());
+        if (curve::valid_scalar(output)) {
+            return true;
+        }
     }
-    const auto* curve = reinterpret_cast<PUCHAR>(const_cast<wchar_t*>(BCRYPT_ECC_CURVE_SECP224R1));
-    if (!succeeded(BCryptSetProperty(algorithm,
-                                     BCRYPT_ECC_CURVE_NAME,
-                                     const_cast<PUCHAR>(curve),
-                                     sizeof(BCRYPT_ECC_CURVE_SECP224R1),
-                                     0))) {
-        BCryptCloseAlgorithmProvider(algorithm, 0);
-        return false;
-    }
-    output = algorithm;
-    return true;
-}
-
-/**
- * Imports the peer's point as a public key.
- * @param algorithm Provider bound to the curve.
- * @param x Affine x.
- * @param y Affine y.
- * @param output Receives the key handle only on success.
- * @return True when Windows accepted the point.
- */
-[[nodiscard]] bool import_peer(BCRYPT_ALG_HANDLE algorithm,
-                               const std::array<std::byte, kFieldSize>& x,
-                               const std::array<std::byte, kFieldSize>& y,
-                               BCRYPT_KEY_HANDLE& output) noexcept {
-    std::array<std::byte, sizeof(BCRYPT_ECCKEY_BLOB) + (2 * kFieldSize)> blob{};
-    auto* header = reinterpret_cast<BCRYPT_ECCKEY_BLOB*>(blob.data());
-    header->dwMagic = kGenericPublicMagic;
-    header->cbKey = static_cast<ULONG>(kFieldSize);
-    std::copy(x.begin(), x.end(), blob.begin() + sizeof(BCRYPT_ECCKEY_BLOB));
-    std::copy(y.begin(), y.end(), blob.begin() + sizeof(BCRYPT_ECCKEY_BLOB) + kFieldSize);
-    return succeeded(BCryptImportKeyPair(algorithm,
-                                         nullptr,
-                                         BCRYPT_ECCPUBLIC_BLOB,
-                                         &output,
-                                         reinterpret_cast<PUCHAR>(blob.data()),
-                                         static_cast<ULONG>(blob.size()),
-                                         0));
-}
-
-/**
- * Runs the agreement and takes the raw secret.
- * @param ours Our private key.
- * @param theirs Peer's public key.
- * @param output Receives the x coordinate, high byte first.
- * @return True when Windows produced a full-width secret.
- */
-[[nodiscard]] bool raw_secret(BCRYPT_KEY_HANDLE ours,
-                              BCRYPT_KEY_HANDLE theirs,
-                              std::array<std::byte, kFieldSize>& output) noexcept {
-    BCRYPT_SECRET_HANDLE secret = nullptr;
-    if (!succeeded(BCryptSecretAgreement(ours, theirs, &secret, 0))) {
-        return false;
-    }
-    ULONG produced = 0;
-    const bool derived = succeeded(BCryptDeriveKey(secret,
-                                                   BCRYPT_KDF_RAW_SECRET,
-                                                   nullptr,
-                                                   reinterpret_cast<PUCHAR>(output.data()),
-                                                   static_cast<ULONG>(output.size()),
-                                                   &produced,
-                                                   0));
-    BCryptDestroySecret(secret);
-    if (!derived || produced != output.size()) {
-        // A short derive can still have written part of the secret.
-        SecureZeroMemory(output.data(), output.size());
-        return false;
-    }
-    // Windows hands the raw secret back low byte first; the peer reads it high byte first.
-    std::reverse(output.begin(), output.end());
-    return true;
+    SecureZeroMemory(drawn.data(), drawn.size());
+    output = {};
+    return false;
 }
 
 } // namespace
@@ -252,47 +189,39 @@ bool agree(std::span<const std::byte> peerPublicKey, Agreement& output) noexcept
     if (!decode_public_key(peerPublicKey, peerX, peerY)) {
         return false;
     }
-    BCRYPT_ALG_HANDLE algorithm = nullptr;
-    if (!open_provider(algorithm)) {
+    curve::Point peer{};
+    curve::load(peerX, peer.x);
+    curve::load(peerY, peer.y);
+    if (!curve::on_curve(peer)) {
         return false;
     }
 
-    BCRYPT_KEY_HANDLE ours = nullptr;
-    BCRYPT_KEY_HANDLE theirs = nullptr;
-    bool complete = false;
-    if (succeeded(BCryptGenerateKeyPair(algorithm, &ours, kFieldSize * kByteBits, 0))
-        && succeeded(BCryptFinalizeKeyPair(ours, 0))) {
-        std::array<std::byte, sizeof(BCRYPT_ECCKEY_BLOB) + (2 * kFieldSize)> blob{};
-        ULONG produced = 0;
-        if (succeeded(BCryptExportKey(ours,
-                                      nullptr,
-                                      BCRYPT_ECCPUBLIC_BLOB,
-                                      reinterpret_cast<PUCHAR>(blob.data()),
-                                      static_cast<ULONG>(blob.size()),
-                                      &produced,
-                                      0))
-            && produced == blob.size()) {
-            const std::span<const std::byte> point{blob.data() + sizeof(BCRYPT_ECCKEY_BLOB),
-                                                   2 * kFieldSize};
-            complete =
-                encode_public_key(point.first(kFieldSize), point.last(kFieldSize), output.publicKey)
-                && import_peer(algorithm, peerX, peerY, theirs)
-                && raw_secret(ours, theirs, output.sharedSecret);
-        }
+    curve::Field secret{};
+    if (!generate_scalar(secret)) {
+        return false;
+    }
+    curve::Point ours{};
+    curve::Point agreed{};
+    const bool multiplied =
+        curve::multiply(secret, curve::generator(), ours) && curve::multiply(secret, peer, agreed);
+    SecureZeroMemory(secret.data(), secret.size() * sizeof(secret[0]));
+    if (!multiplied) {
+        return false;
     }
 
-    if (theirs != nullptr) {
-        BCryptDestroyKey(theirs);
-    }
-    if (ours != nullptr) {
-        BCryptDestroyKey(ours);
-    }
-    BCryptCloseAlgorithmProvider(algorithm, 0);
-    if (!complete) {
+    std::array<std::byte, kFieldSize> ourX{};
+    std::array<std::byte, kFieldSize> ourY{};
+    curve::store(ours.x, ourX);
+    curve::store(ours.y, ourY);
+    curve::store(agreed.x, output.sharedSecret);
+    // The agreed point is secret material, so only the stored copy may outlive this call.
+    SecureZeroMemory(&agreed, sizeof(agreed));
+    if (!encode_public_key(ourX, ourY, output.publicKey)) {
         SecureZeroMemory(output.sharedSecret.data(), output.sharedSecret.size());
         output = {};
+        return false;
     }
-    return complete;
+    return true;
 }
 
 } // namespace sunrise::middleware::crypto::ecc

@@ -24,7 +24,7 @@ struct Agreement {
  * The pair is ephemeral and is destroyed before this returns; only the agreement survives.
  * @param peerPublicKey Peer's exported key, padding included.
  * @param output Receives the public key and the secret only on success.
- * @return True when the peer key parsed and Windows completed the agreement.
+ * @return True when the peer key parsed, sits on the curve, and the agreement completed.
  */
 [[nodiscard]] bool agree(std::span<const std::byte> peerPublicKey, Agreement& output) noexcept;
 

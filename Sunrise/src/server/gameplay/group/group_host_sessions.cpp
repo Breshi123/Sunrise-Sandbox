@@ -17,6 +17,8 @@ struct HostSession {
     std::uint64_t groupSessionId{};
     std::uint64_t hostSessionId{};
     std::uint64_t lastUse{};
+    /** Region the advertisement named. The interface reads it; no lookup uses it. */
+    std::int32_t regionIndex{};
     bool occupied{};
 };
 
@@ -38,21 +40,28 @@ std::size_t g_evictedCount = 0;
 /**
  * Names one region in the table, taking a slot when it holds none. The caller holds the lock.
  * @param groupSessionId Group session the region advertises.
+ * @param regionIndex Region the caller is advertising, kept on the row.
  * @param held Receives the session the region already holds, or the absent id.
  * @return True when a slot names the region afterwards.
  */
-[[nodiscard]] bool claim_locked(std::uint64_t groupSessionId, std::uint64_t& held) noexcept {
+[[nodiscard]] bool
+claim_locked(std::uint64_t groupSessionId, std::int32_t regionIndex, std::uint64_t& held) noexcept {
     held = state::activity::kAbsentSessionId;
     for (HostSession& entry : g_hostSessions) {
         if (entry.occupied && entry.groupSessionId == groupSessionId) {
             entry.lastUse = ++g_useStamp;
+            // A caller with no region keeps the one the advertisement recorded.
+            if (regionIndex != kUnknownRegion) {
+                entry.regionIndex = regionIndex;
+            }
             held = entry.hostSessionId;
             return true;
         }
     }
     for (HostSession& entry : g_hostSessions) {
         if (!entry.occupied) {
-            entry = {groupSessionId, state::activity::kAbsentSessionId, ++g_useStamp, true};
+            entry = {
+                groupSessionId, state::activity::kAbsentSessionId, ++g_useStamp, regionIndex, true};
             return true;
         }
     }
@@ -72,7 +81,7 @@ std::size_t g_evictedCount = 0;
         ++g_evictedCount;
     }
     g_hostSessions[oldest] = {
-        groupSessionId, state::activity::kAbsentSessionId, ++g_useStamp, true};
+        groupSessionId, state::activity::kAbsentSessionId, ++g_useStamp, regionIndex, true};
     return true;
 }
 
@@ -111,14 +120,31 @@ std::uint64_t held_host_session(std::uint64_t groupSessionId) noexcept {
     return held;
 }
 
+/** Copies every occupied host-session row. */
+void snapshot_host_sessions(std::span<HostSessionRow> output, std::size_t& count) noexcept {
+    count = 0;
+    AcquireSRWLockShared(&g_hostSessionLock);
+    for (const HostSession& entry : g_hostSessions) {
+        if (!entry.occupied || count >= output.size()) {
+            continue;
+        }
+        output[count] = {entry.groupSessionId, entry.hostSessionId, entry.regionIndex};
+        ++count;
+    }
+    ReleaseSRWLockShared(&g_hostSessionLock);
+}
+
 /** Reports one region's activity session, asking the gameplay slice to allocate a missing one. */
-std::uint64_t activity_host_session(std::uint64_t groupSessionId) noexcept {
+std::uint64_t activity_host_session(std::uint64_t groupSessionId,
+                                    std::int32_t regionIndex) noexcept {
     bool claimed = false;
-    return activity_host_session(groupSessionId, claimed);
+    return activity_host_session(groupSessionId, regionIndex, claimed);
 }
 
 /** Reports one region's activity session and whether it holds a slot at all. */
-std::uint64_t activity_host_session(std::uint64_t groupSessionId, bool& claimedSlot) noexcept {
+std::uint64_t activity_host_session(std::uint64_t groupSessionId,
+                                    std::int32_t regionIndex,
+                                    bool& claimedSlot) noexcept {
     claimedSlot = false;
     if (groupSessionId == 0) {
         return state::activity::kAbsentSessionId;
@@ -127,7 +153,7 @@ std::uint64_t activity_host_session(std::uint64_t groupSessionId, bool& claimedS
     // of the push that called in. The slot is claimed now and `service` fills it for the next one.
     std::uint64_t held = state::activity::kAbsentSessionId;
     AcquireSRWLockExclusive(&g_hostSessionLock);
-    const bool claimed = claim_locked(groupSessionId, held);
+    const bool claimed = claim_locked(groupSessionId, regionIndex, held);
     ReleaseSRWLockExclusive(&g_hostSessionLock);
     claimedSlot = claimed;
     if (!claimed) {

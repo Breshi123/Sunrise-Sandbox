@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -375,10 +376,26 @@ publish_scenario_layouts(std::span<const scenarios::Definition> definitions,
  * Publishes the spawn-set catalog extracted from the installed packages, in one step.
  * @param stems Complete stem rows in ascending name order, or an empty complete catalog.
  * @param nameHashes Complete flat bank in stem then hash order.
+ * @param points Complete point bank in extraction order, which may be empty.
  * @return True when the rows pass the checks and any needed cache write succeeds.
  */
 [[nodiscard]] bool publish_spawn_sets(std::span<const spawn_sets::Stem> stems,
-                                      std::span<const spawn_sets::NameHash> nameHashes) noexcept;
+                                      std::span<const spawn_sets::NameHash> nameHashes,
+                                      std::span<const spawn_sets::Point> points) noexcept;
+
+/**
+ * Finds the spawn point of one map-package stem nearest a world position.
+ * @param stem Normalized stem a destination row carries.
+ * @param position World position to measure from.
+ * @param point Receives the nearest point and the set it belongs to.
+ * @param distance Receives the distance to it, in world units.
+ * @return True when the catalog is ready, holds the stem, and the stem owns a point.
+ */
+[[nodiscard]] bool
+find_nearest_spawn_point(std::string_view stem,
+                         const std::array<float, spawn_sets::kPositionComponents>& position,
+                         spawn_sets::Point& point,
+                         float& distance) noexcept;
 
 /**
  * Copies the whole flat spawn-name hash bank.
