@@ -50,9 +50,10 @@ void report_fail(const char* reason) noexcept {
     }
 }
 
-[[nodiscard]] bool parse_key(std::string_view document,
-                             std::string_view name,
-                             std::uint32_t& output) noexcept {
+template <typename Integer>
+[[nodiscard]] bool parse_value(std::string_view document,
+                               std::string_view name,
+                               Integer& output) noexcept {
     std::array<char, 48> quoted{};
     const int length =
         std::snprintf(quoted.data(), quoted.size(), "\"%.*s\"", static_cast<int>(name.size()), name.data());
@@ -99,8 +100,9 @@ void load() noexcept {
     Keybinds parsed{};
     const std::string_view text(document.data(), read);
     for (std::size_t index = 0; index < kNames.size(); ++index) {
-        (void)parse_key(text, kNames[index], parsed.virtualKeys[index]);
+        (void)parse_value(text, kNames[index], parsed.virtualKeys[index]);
     }
+    (void)parse_value(text, "hidden_main_types", parsed.hiddenMainTypes);
     if (valid(parsed)) {
         g_keybinds = parsed;
     } else {
@@ -118,13 +120,15 @@ void load() noexcept {
         document.size(),
         "{\n  \"main_player\": %u,\n  \"main_crosshair\": %u,\n"
         "  \"projectile_player\": %u,\n  \"projectile_crosshair\": %u,\n"
-        "  \"loot_player\": %u,\n  \"loot_crosshair\": %u\n}\n",
+        "  \"loot_player\": %u,\n  \"loot_crosshair\": %u,\n"
+        "  \"hidden_main_types\": %llu\n}\n",
         static_cast<unsigned>(keybinds.virtualKeys[0]),
         static_cast<unsigned>(keybinds.virtualKeys[1]),
         static_cast<unsigned>(keybinds.virtualKeys[2]),
         static_cast<unsigned>(keybinds.virtualKeys[3]),
         static_cast<unsigned>(keybinds.virtualKeys[4]),
-        static_cast<unsigned>(keybinds.virtualKeys[5]));
+        static_cast<unsigned>(keybinds.virtualKeys[5]),
+        static_cast<unsigned long long>(keybinds.hiddenMainTypes));
     if (size <= 0 || static_cast<std::size_t>(size) >= document.size()) {
         return false;
     }

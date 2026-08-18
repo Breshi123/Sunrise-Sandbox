@@ -38,7 +38,7 @@ constexpr std::size_t kMaximumRows = 1U << 20U;
 constexpr std::wstring_view kCacheSuffix = L"\\EntityNames.json";
 constexpr std::wstring_view kTemporarySuffix = L".tmp";
 constexpr std::string_view kMarker =
-    "\"generator\": \"sunrise_package_entity_names_v2\"";
+    "\"generator\": \"sunrise_package_entity_names_v3\"";
 
 using Name = localized_aliases::Entry;
 
@@ -262,6 +262,7 @@ void sort_unique(std::vector<std::uint32_t>& values) {
             output.validEntities.push_back(tag);
         }
     }
+
     sort_unique(output.validEntities);
     package_reader::close_files(*scratch);
 
@@ -335,7 +336,7 @@ void sort_unique(std::vector<std::uint32_t>& values) {
     }
 
     bool complete = write_all(file,
-                              "{\n  \"generator\": \"sunrise_package_entity_names_v2\",\n"
+                              "{\n  \"generator\": \"sunrise_package_entity_names_v3\",\n"
                               "  \"entities\": {\n");
     bool firstTag = true;
     std::size_t cursor = 0;
@@ -374,11 +375,12 @@ void sort_unique(std::vector<std::uint32_t>& values) {
 }
 
 void report(const Collection& collection, bool written) noexcept {
-    std::array<char, 240> line{};
+    std::array<char, 384> line{};
     const int length = std::snprintf(line.data(),
                                      line.size(),
                                      "ev=entity_names stage=extract packages=%zu bags=%zu "
-                                     "wrappers=%zu placements=%zu aliases=%zu names=%zu result=%s",
+                                     "wrappers=%zu placements=%zu aliases=%zu "
+                                     "names=%zu result=%s",
                                      collection.packages,
                                      collection.bags,
                                      collection.aliases.wrappers,
@@ -388,7 +390,7 @@ void report(const Collection& collection, bool written) noexcept {
                                      written ? "ok" : "fail");
     if (length > 0) {
         core::log::write(core::log::Channel::client,
-                         written ? core::log::Level::info : core::log::Level::warn,
+                         core::log::Level::warn,
                          {line.data(), static_cast<std::size_t>(length)});
     }
 }

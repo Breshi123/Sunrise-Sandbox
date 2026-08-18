@@ -30,15 +30,85 @@ namespace package_reader = middleware::content::packages::reader;
 namespace picker = core::ui::components::picker;
 
 constexpr std::uint32_t kEntityClass = 0x80809C0FU;
-constexpr std::uint8_t kProjectileType = 18;
-constexpr std::uint8_t kAmmoType = 20;
-constexpr std::uint8_t kLootType = 21;
 constexpr std::string_view kNameObject = "\"entities\"";
 constexpr std::uint64_t kMaximumNameFile = 32ULL * 1024ULL * 1024ULL;
 
+enum class ObjectType : std::uint8_t {
+    Inherited = 0,
+    StaticMesh = 1,                 // Interactable
+    PropSimpleDeprecated = 2,
+    PropExpensiveDeprecated = 3,
+    PropCosmeticStatic = 4,         // World effects / decorations
+    PropCosmeticMovable = 5,        // Moving props
+    PropCosmeticMovableGarbage = 6,
+    PropNetworkedStatic = 7,        // Ad spawns
+    PropNetworkedMovable = 8,       // Explodable
+    PropCinematic = 9,
+    Speedtree = 10,
+    Interactive = 11,
+    Biped = 12,                     // Guardians, Enemies, NPCs
+    Creature = 13,
+    Weapon = 14,                    // Weapon props
+    Vehicle = 15,                   // Sparrows, Pikes, Ships
+    Turret = 16,                    // VehicleEntity
+    Emitter = 17,                   // Effects, some interactive projectiles
+    Projectile = 18,
+    Item = 19,
+    ItemAmmo = 20,
+    ItemLoot = 21,
+    Gear = 22,
+    HopOn = 23,
+    HopOnGearBiped = 24,
+    HopOnGearWeapon = 25,
+    HopOnGearShip = 26,
+    HopOnGearSparrow = 27,
+    System = 28,
+    Invalid = 0xFF,
+};
+
+constexpr std::array<const char*, 29> kObjectTypeNames{
+    "Inherited",
+    "StaticMesh",
+    "PropSimpleDeprecated",
+    "PropExpensiveDeprecated",
+    "PropCosmeticStatic",
+    "PropCosmeticMovable",
+    "PropCosmeticMovableGarbage",
+    "PropNetworkedStatic",
+    "PropNetworkedMovable",
+    "PropCinematic",
+    "Speedtree",
+    "Interactive",
+    "Biped",
+    "Creature",
+    "Weapon",
+    "Vehicle",
+    "Turret",
+    "Emitter",
+    "Projectile",
+    "Item",
+    "ItemAmmo",
+    "ItemLoot",
+    "Gear",
+    "HopOn",
+    "HopOnGearBiped",
+    "HopOnGearWeapon",
+    "HopOnGearShip",
+    "HopOnGearSparrow",
+    "System",
+};
+
+static_assert(kObjectTypeNames.size() == static_cast<std::uint8_t>(ObjectType::System) + 1);
+
+enum class SpawnAllMode : std::uint8_t {
+    none,
+    all,
+    selectedType,
+};
+
 struct Candidate {
     std::uint32_t tag{};
-    std::uint8_t type{};
+    ObjectType type{};
     bool named{};
     std::array<char, 224> label{};
 };
@@ -62,6 +132,7 @@ struct Column {
 Column g_main{};
 Column g_projectile{};
 Column g_loot{};
+std::vector<Candidate> g_allMainCandidates{};
 std::vector<EntityName> g_names{};
 bool g_scanned{};
 std::size_t g_capturingKey{spawn_keys::kActionCount};
@@ -309,10 +380,6 @@ void skip_space(std::string_view document, std::size_t& cursor) noexcept {
     });
 }
 
-[[nodiscard]] bool skipped_family(std::wstring_view family) noexcept {
-    return family.starts_with(L"w64_audio_") || family.starts_with(L"w64_ui_");
-}
-
 void family_text(std::wstring_view family, std::array<char, 96>& output) noexcept {
     output = {};
     const std::size_t count = (std::min)(family.size(), output.size() - 1);
@@ -320,6 +387,27 @@ void family_text(std::wstring_view family, std::array<char, 96>& output) noexcep
         const wchar_t value = family[index];
         output[index] = value >= 32 && value <= 126 ? static_cast<char>(value) : '?';
     }
+}
+
+[[nodiscard]] constexpr const char* object_type_name(ObjectType type) noexcept {
+    if (type == ObjectType::Invalid) {
+        return "Invalid";
+    }
+    const std::size_t index = static_cast<std::uint8_t>(type);
+    return index < kObjectTypeNames.size() ? kObjectTypeNames[index] : nullptr;
+}
+
+constexpr std::uint64_t kUnknownObjectTypeBit = 1ULL << 62;
+constexpr std::uint64_t kInvalidObjectTypeBit = 1ULL << 63;
+
+[[nodiscard]] constexpr std::uint64_t object_type_filter_bit(ObjectType type) noexcept {
+    if (object_type_name(type) == nullptr) {
+        return kUnknownObjectTypeBit;
+    }
+    if (type == ObjectType::Invalid) {
+        return kInvalidObjectTypeBit;
+    }
+    return 1ULL << static_cast<std::uint8_t>(type);
 }
 
 void add_candidate(Column& column,
@@ -330,30 +418,36 @@ void add_candidate(Column& column,
     family_text(family, package);
     Candidate value{};
     value.tag = tag;
-    value.type = type;
+    value.type = static_cast<ObjectType>(type);
     const char* const name = name_of(tag);
+    const char* typeName = object_type_name(value.type);
+    std::array<char, 32> unknownType{};
+    if (typeName == nullptr) {
+        (void)std::snprintf(unknownType.data(), unknownType.size(), "Unknown(%u)", type);
+        typeName = unknownType.data();
+    }
     value.named = name != nullptr;
     if (name != nullptr) {
         (void)std::snprintf(value.label.data(),
                             value.label.size(),
-                            "%s | 0x%08X | type %u | %s",
+                            "%s | %s | 0x%08X | %s",
                             name,
+                            typeName,
                             tag,
-                            static_cast<unsigned>(type),
                             package.data());
     } else {
         (void)std::snprintf(value.label.data(),
                             value.label.size(),
-                            "0x%08X | type %u | %s",
+                            "0x%08X | %s | %s",
                             tag,
-                            static_cast<unsigned>(type),
+                            typeName,
                             package.data());
     }
     column.candidates.push_back(value);
 }
 
 bool collect_entity(void*, const package_reader::ClassEntry& entry) noexcept {
-    if (skipped_family(entry.packageFamily) || !native::is_tag_resident(entry.tag)) {
+    if (!native::is_tag_resident(entry.tag)) {
         return true;
     }
     std::uint8_t type = 0;
@@ -361,9 +455,10 @@ bool collect_entity(void*, const package_reader::ClassEntry& entry) noexcept {
         return true;
     }
     const char* const name = name_of(entry.tag);
-    if (type == kProjectileType || (name != nullptr && projectile_name(name))) {
+    const auto objectType = static_cast<ObjectType>(type);
+    if (objectType == ObjectType::Projectile || (name != nullptr && projectile_name(name))) {
         add_candidate(g_projectile, entry.tag, type, entry.packageFamily);
-    } else if (type == kAmmoType || type == kLootType) {
+    } else if (objectType == ObjectType::ItemAmmo || objectType == ObjectType::ItemLoot) {
         add_candidate(g_loot, entry.tag, type, entry.packageFamily);
     } else {
         add_candidate(g_main, entry.tag, type, entry.packageFamily);
@@ -396,10 +491,22 @@ void finish_column(Column& column) {
     column.selected = 0;
 }
 
+void apply_main_type_filter(std::uint64_t hiddenTypes) {
+    g_main.candidates.clear();
+    g_main.candidates.reserve(g_allMainCandidates.size());
+    for (const Candidate& candidate : g_allMainCandidates) {
+        if ((hiddenTypes & object_type_filter_bit(candidate.type)) == 0) {
+            g_main.candidates.push_back(candidate);
+        }
+    }
+    finish_column(g_main);
+}
+
 void refresh() noexcept {
     g_main.candidates.clear();
     g_projectile.candidates.clear();
     g_loot.candidates.clear();
+    g_allMainCandidates.clear();
     core::path::Buffer directory{};
     const bool hasDirectory = client::content::items::packages::package_directory(directory);
     if (hasDirectory) {
@@ -413,6 +520,8 @@ void refresh() noexcept {
         package_reader::release_caches();
     }
     finish_column(g_main);
+    g_allMainCandidates = g_main.candidates;
+    apply_main_type_filter(spawn_keys::get().hiddenMainTypes);
     finish_column(g_projectile);
     finish_column(g_loot);
     g_scanned = true;
@@ -424,29 +533,88 @@ void refresh() noexcept {
                : "[None]";
 }
 
-void draw_settings(Column& column, const char* id, bool showSpawnAll) noexcept {
+void draw_main_type_filter(spawn_keys::Keybinds& settings, bool& changed) noexcept {
+    if (!ImGui::TreeNodeEx("Sort", ImGuiTreeNodeFlags_SpanAvailWidth)) {
+        return;
+    }
+
+    bool filterChanged = false;
+    ImGui::TextDisabled("Checked types are visible");
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                        ImVec2(ImGui::GetStyle().ItemSpacing.x, 2.0F));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                        ImVec2(ImGui::GetStyle().FramePadding.x, 1.0F));
+    if (ImGui::BeginTable("type_visibility", 4, ImGuiTableFlags_SizingStretchSame)) {
+        const auto drawType = [&](ObjectType type) {
+            ImGui::TableNextColumn();
+            const std::uint64_t bit = object_type_filter_bit(type);
+            bool visible = (settings.hiddenMainTypes & bit) == 0;
+            if (ImGui::Checkbox(object_type_name(type), &visible)) {
+                settings.hiddenMainTypes = visible ? settings.hiddenMainTypes & ~bit
+                                                   : settings.hiddenMainTypes | bit;
+                filterChanged = true;
+            }
+        };
+        for (std::size_t index = 0; index < kObjectTypeNames.size(); ++index) {
+            drawType(static_cast<ObjectType>(index));
+        }
+        drawType(ObjectType::Invalid);
+        ImGui::TableNextColumn();
+        bool unknownVisible = (settings.hiddenMainTypes & kUnknownObjectTypeBit) == 0;
+        if (ImGui::Checkbox("Unknown", &unknownVisible)) {
+            settings.hiddenMainTypes = unknownVisible
+                                           ? settings.hiddenMainTypes & ~kUnknownObjectTypeBit
+                                           : settings.hiddenMainTypes | kUnknownObjectTypeBit;
+            filterChanged = true;
+        }
+        ImGui::EndTable();
+    }
+    ImGui::PopStyleVar(2);
+    ImGui::TreePop();
+
+    if (filterChanged) {
+        apply_main_type_filter(settings.hiddenMainTypes);
+        changed = true;
+    }
+}
+
+void draw_settings(Column& column, const char* id, SpawnAllMode spawnAllMode) noexcept {
     ImGui::PushID(id);
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float controlWidth = (ImGui::GetContentRegionAvail().x - spacing) * 0.5F;
+
+    ImGui::BeginGroup();
     ImGui::TextUnformatted("Amount:");
-    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::SetNextItemWidth(controlWidth);
     ImGui::DragInt("##amount", &column.amount, 1.0F, 1, 4096, "%d");
+    ImGui::EndGroup();
+    ImGui::SameLine();
+    ImGui::BeginGroup();
     ImGui::TextUnformatted("Vertical lift:");
-    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::SetNextItemWidth(controlWidth);
     ImGui::DragFloat(
         "##vertical_lift", &column.settings.lift, 0.1F, -100.0F, 100.0F, "%.1f");
+    ImGui::EndGroup();
+
+    ImGui::BeginGroup();
+    ImGui::TextUnformatted("Scale:");
+    ImGui::SetNextItemWidth(controlWidth);
+    ImGui::DragFloat("##scale", &column.settings.scale, 0.01F, 0.01F, 100.0F, "%.2f");
+    ImGui::EndGroup();
+    ImGui::SameLine();
+    ImGui::BeginGroup();
     ImGui::TextUnformatted("Ray distance:");
-    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::SetNextItemWidth(controlWidth);
     ImGui::DragFloat("##ray_distance",
                      &column.settings.rayDistance,
                      1.0F,
                      1.0F,
                      2000.0F,
                      "%.0f");
-    ImGui::TextUnformatted("Scale:");
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    ImGui::DragFloat("##scale", &column.settings.scale, 0.01F, 0.01F, 100.0F, "%.2f");
-    ImGui::Checkbox("Camera rotation", &column.settings.useCameraRotation);
+    ImGui::EndGroup();
 
     if (ImGui::TreeNodeEx("Transform", ImGuiTreeNodeFlags_SpanAvailWidth)) {
+        ImGui::Checkbox("Camera rotation", &column.settings.useCameraRotation);
         ImGui::Checkbox("Override rotation", &column.settings.overrideRotation);
         ImGui::TextUnformatted("Position offset:");
         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -459,19 +627,30 @@ void draw_settings(Column& column, const char* id, bool showSpawnAll) noexcept {
         ImGui::TreePop();
     }
 
-    if (showSpawnAll
-        && ImGui::TreeNodeEx("Spawn All [unstable]", ImGuiTreeNodeFlags_SpanAvailWidth)) {
+    const bool filterByType = spawnAllMode == SpawnAllMode::selectedType;
+    const char* const spawnAllLabel = filterByType ? "Spawn All of Type [unstable]"
+                                                   : "Spawn All [unstable]";
+    if (spawnAllMode != SpawnAllMode::none
+        && ImGui::TreeNodeEx(spawnAllLabel, ImGuiTreeNodeFlags_SpanAvailWidth)) {
         ImGui::TextUnformatted("Items per row:");
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::DragInt("##items_per_row", &column.perRow, 1.0F, 1, 4096, "%d");
         ImGui::TextUnformatted("Spacing:");
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::DragFloat("##spacing", &column.spacing, 0.1F, 0.1F, 100.0F, "%.1f");
-        if (ImGui::Button("Spawn all at crosshair", ImVec2(-FLT_MIN, 0.0F))) {
+        const bool hasSelection = column.selected < column.candidates.size();
+        ImGui::BeginDisabled(native::busy() || (filterByType && !hasSelection));
+        if (ImGui::Button(filterByType ? "Spawn selected type at crosshair"
+                                       : "Spawn all at crosshair",
+                          ImVec2(-FLT_MIN, 0.0F))) {
             std::vector<std::uint32_t> tags{};
             tags.reserve(column.candidates.size());
+            const ObjectType selectedType = hasSelection ? column.candidates[column.selected].type
+                                                         : ObjectType::Invalid;
             for (const Candidate& candidate : column.candidates) {
-                tags.push_back(candidate.tag);
+                if (!filterByType || candidate.type == selectedType) {
+                    tags.push_back(candidate.tag);
+                }
             }
             (void)native::request_line(tags,
                                        native::Origin::crosshair,
@@ -479,6 +658,7 @@ void draw_settings(Column& column, const char* id, bool showSpawnAll) noexcept {
                                        column.spacing,
                                        column.settings);
         }
+        ImGui::EndDisabled();
         ImGui::TreePop();
     }
     ImGui::PopID();
@@ -516,38 +696,44 @@ void draw_column(const char* title,
                  Column& column,
                  spawn_keys::Action playerAction,
                  spawn_keys::Action crosshairAction,
-                 bool showSpawnAll,
+                 bool showTypeFilter,
+                 SpawnAllMode spawnAllMode,
                  spawn_keys::Keybinds& keybinds,
                  bool& keybindsChanged) noexcept {
     ImGui::PushID(id);
-    ImGui::TextUnformatted(title);
-    ImGui::Separator();
-    const std::span<const picker::Item> rows(column.items.data(), column.items.size());
-    (void)picker::control("picker", preview(column), rows, column.selected);
-
-    ImGui::BeginDisabled(column.selected >= column.candidates.size() || native::busy());
-    if (ImGui::Button("At player", ImVec2(ImGui::GetContentRegionAvail().x * 0.49F, 0.0F))) {
-        (void)native::request(column.candidates[column.selected].tag,
-                              native::Origin::player,
-                              static_cast<std::uint32_t>((std::max)(column.amount, 1)),
-                              column.settings);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("At crosshair", ImVec2(-FLT_MIN, 0.0F))) {
-        (void)native::request(column.candidates[column.selected].tag,
-                              native::Origin::crosshair,
-                              static_cast<std::uint32_t>((std::max)(column.amount, 1)),
-                              column.settings);
-    }
-    ImGui::EndDisabled();
     const std::uint32_t selectedTag = column.selected < column.candidates.size()
                                           ? column.candidates[column.selected].tag
                                           : 0xFFFFFFFFU;
     const std::uint32_t amount = static_cast<std::uint32_t>((std::max)(column.amount, 1));
     native::configure_shortcut(playerAction, selectedTag, amount, column.settings);
     native::configure_shortcut(crosshairAction, selectedTag, amount, column.settings);
-    draw_keybinds(playerAction, crosshairAction, keybinds, keybindsChanged);
-    draw_settings(column, "settings", showSpawnAll);
+
+    if (ImGui::TreeNodeEx(title, ImGuiTreeNodeFlags_SpanAvailWidth)) {
+        if (showTypeFilter) {
+            draw_main_type_filter(keybinds, keybindsChanged);
+        }
+        const std::span<const picker::Item> rows(column.items.data(), column.items.size());
+        (void)picker::control("picker", preview(column), rows, column.selected);
+
+        ImGui::BeginDisabled(column.selected >= column.candidates.size() || native::busy());
+        if (ImGui::Button("At player", ImVec2(ImGui::GetContentRegionAvail().x * 0.49F, 0.0F))) {
+            (void)native::request(column.candidates[column.selected].tag,
+                                  native::Origin::player,
+                                  static_cast<std::uint32_t>((std::max)(column.amount, 1)),
+                                  column.settings);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("At crosshair", ImVec2(-FLT_MIN, 0.0F))) {
+            (void)native::request(column.candidates[column.selected].tag,
+                                  native::Origin::crosshair,
+                                  static_cast<std::uint32_t>((std::max)(column.amount, 1)),
+                                  column.settings);
+        }
+        ImGui::EndDisabled();
+        draw_keybinds(playerAction, crosshairAction, keybinds, keybindsChanged);
+        draw_settings(column, "settings", spawnAllMode);
+        ImGui::TreePop();
+    }
     ImGui::PopID();
 }
 
@@ -573,41 +759,35 @@ void draw() noexcept {
         }
     }
 
-    constexpr ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchSame
-                                      | ImGuiTableFlags_BordersInnerV
-                                      | ImGuiTableFlags_PadOuterX;
     spawn_keys::Keybinds keybinds = spawn_keys::get();
     bool keybindsChanged = false;
-    if (ImGui::BeginTable("spawn_columns", 3, flags)) {
-        ImGui::TableNextColumn();
-        draw_column("Main spawner",
-                    "main",
-                    g_main,
-                    spawn_keys::Action::mainPlayer,
-                    spawn_keys::Action::mainCrosshair,
-                    false,
-                    keybinds,
-                    keybindsChanged);
-        ImGui::TableNextColumn();
-        draw_column("Projectile spawner",
-                    "projectile",
-                    g_projectile,
-                    spawn_keys::Action::projectilePlayer,
-                    spawn_keys::Action::projectileCrosshair,
-                    true,
-                    keybinds,
-                    keybindsChanged);
-        ImGui::TableNextColumn();
-        draw_column("Loot spawner",
-                    "loot",
-                    g_loot,
-                    spawn_keys::Action::lootPlayer,
-                    spawn_keys::Action::lootCrosshair,
-                    true,
-                    keybinds,
-                    keybindsChanged);
-        ImGui::EndTable();
-    }
+    draw_column("Main spawner",
+                "main",
+                g_main,
+                spawn_keys::Action::mainPlayer,
+                spawn_keys::Action::mainCrosshair,
+                true,
+                SpawnAllMode::selectedType,
+                keybinds,
+                keybindsChanged);
+    draw_column("Projectile spawner",
+                "projectile",
+                g_projectile,
+                spawn_keys::Action::projectilePlayer,
+                spawn_keys::Action::projectileCrosshair,
+                false,
+                SpawnAllMode::all,
+                keybinds,
+                keybindsChanged);
+    draw_column("Loot spawner",
+                "loot",
+                g_loot,
+                spawn_keys::Action::lootPlayer,
+                spawn_keys::Action::lootCrosshair,
+                false,
+                SpawnAllMode::all,
+                keybinds,
+                keybindsChanged);
     if (keybindsChanged) {
         (void)spawn_keys::publish(keybinds);
     }
