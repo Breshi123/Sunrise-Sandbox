@@ -67,19 +67,10 @@ struct AssetSpec final {
 };
 
 constexpr std::array kAssetSpecs{
-    AssetSpec{0x80A145C0U, 0x80A145C1U, IDR_BOOTFLOW_TEXTURE_80A145C1},
-    AssetSpec{0x80A145DEU, 0x80A145DFU, IDR_BOOTFLOW_TEXTURE_80A145DF},
-    AssetSpec{0x80A145E3U, 0x80A145E4U, IDR_BOOTFLOW_TEXTURE_80A145E4},
-    AssetSpec{0x80A145E6U, 0x80A145E7U, IDR_BOOTFLOW_TEXTURE_80A145E7},
-    AssetSpec{0x80A145EEU, 0x80A145EFU, IDR_BOOTFLOW_TEXTURE_80A145EF},
-    AssetSpec{0x80A145FAU, 0x80A145FBU, IDR_BOOTFLOW_TEXTURE_80A145FB},
     AssetSpec{0x80A145FEU, 0x80A145FFU, IDR_BOOTFLOW_TEXTURE_80A145FF},
     AssetSpec{0x80A14602U, 0x80A14601U, IDR_BOOTFLOW_TEXTURE_80A14601},
-    AssetSpec{0x80A14605U, 0x80A14604U, IDR_BOOTFLOW_TEXTURE_80A14604},
     AssetSpec{0x80A14608U, 0x80A14607U, IDR_BOOTFLOW_TEXTURE_80A14607},
-    AssetSpec{0x80A1460AU, 0x80A1460BU, IDR_BOOTFLOW_TEXTURE_80A1460B},
     AssetSpec{0x80A1460DU, 0x80A1460EU, IDR_BOOTFLOW_TEXTURE_80A1460E},
-    AssetSpec{0x80A14614U, 0x80A14613U, IDR_BOOTFLOW_TEXTURE_80A14613},
     AssetSpec{0x80A1461CU, 0x80A1461DU, IDR_BOOTFLOW_TEXTURE_80A1461D},
     AssetSpec{0x80A14620U, 0x80A1461FU, IDR_BOOTFLOW_TEXTURE_80A1461F},
     AssetSpec{0x80A14622U, 0x80A14621U, IDR_BOOTFLOW_TEXTURE_80A14621},
@@ -93,10 +84,7 @@ constexpr std::array kAssetSpecs{
     AssetSpec{0x80A14632U, 0x80A14631U, IDR_BOOTFLOW_TEXTURE_80A14631},
     AssetSpec{0x80A14634U, 0x80A14633U, IDR_BOOTFLOW_TEXTURE_80A14633},
     AssetSpec{0x80A14635U, 0x80A14636U, IDR_BOOTFLOW_TEXTURE_80A14636},
-    AssetSpec{0x80A14638U, 0x80A14639U, IDR_BOOTFLOW_TEXTURE_80A14639},
-    AssetSpec{0x80A146CDU, 0x80A146CCU, IDR_BOOTFLOW_TEXTURE_80A146CC},
-    AssetSpec{0x80A146D0U, 0x80A146CFU, IDR_BOOTFLOW_TEXTURE_80A146CF},
-    AssetSpec{0x80A146D2U, 0x80A146D3U, IDR_BOOTFLOW_TEXTURE_80A146D3},
+    AssetSpec{0x80A146D4U, 0x80A146D5U, IDR_BOOTFLOW_TEXTURE_80A146D5},
 };
 
 struct DdsView final {
@@ -440,9 +428,17 @@ bool install(void* module) noexcept {
                          "ev=bootflow_texture stage=attach result=fail");
         return false;
     }
-    core::log::write(core::log::Channel::client,
-                     core::log::Level::info,
-                     "ev=bootflow_texture stage=attach count=30 result=ok");
+    std::array<char, 80> line{};
+    const int written = std::snprintf(line.data(),
+                                      line.size(),
+                                      "ev=bootflow_texture stage=attach count=%zu result=ok",
+                                      kAssetSpecs.size());
+    if (written > 0) {
+        core::log::write(
+            core::log::Channel::client,
+            core::log::Level::info,
+            {line.data(), (std::min)(static_cast<std::size_t>(written), line.size() - 1)});
+    }
     return true;
 }
 
