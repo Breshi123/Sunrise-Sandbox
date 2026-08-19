@@ -4,12 +4,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <memory>
 #include <span>
 #include <string>
 #include <vector>
 
-#include "../items/packages/internal.h"
 #include "../../../middleware/content/packages/reader/reader.h"
 #include "../../../middleware/content/packages/tables/definition_index_table.h"
 
@@ -480,25 +478,14 @@ void resolve_container(const package_reader::Source& source,
 
 } // namespace
 
-bool append(std::wstring_view packageDirectory,
+bool append(const package_reader::Source& source,
+            package_reader::Scratch& scratch,
             std::vector<Entry>& output,
             Result& result) noexcept {
     result = {};
-    package_reader::BlockKeys keys{};
-    if (!client::content::items::packages::collect_keys(keys)) {
-        return false;
-    }
-    auto scratch = std::make_unique<package_reader::Scratch>();
-    if (!scratch) {
-        return false;
-    }
-    const package_reader::Source source{packageDirectory, &keys};
     std::vector<Candidate> candidates{};
-    const bool collected = collect_candidates(source, *scratch, candidates, result);
-    const bool resolved = collected
-                       && resolve_candidates(source, *scratch, candidates, output, result);
-    package_reader::close_files(*scratch);
-    return resolved;
+    return collect_candidates(source, scratch, candidates, result)
+        && resolve_candidates(source, scratch, candidates, output, result);
 }
 
 } // namespace sunrise::client::content::entity_names::localized_aliases

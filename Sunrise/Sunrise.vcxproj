@@ -219,7 +219,7 @@
     <ClCompile Include="src\client\ui\movement\movement_panel.cpp" />
     <ClCompile Include="src\client\movement\movement_settings_store.cpp" />
     <ClCompile Include="src\client\spawn\spawn_keybind_store.cpp" />
-    <ClCompile Include="src\client\content\entity_names\entity_name_cache.cpp" />
+    <ClCompile Include="src\client\content\entity_names\entity_name_build.cpp" />
     <ClCompile Include="src\client\content\entity_names\localized_aliases.cpp" />
     <ClCompile Include="src\client\inactivity\inactivity_settings_store.cpp" />
     <ClCompile Include="src\client\hooks\inactivity\inactivity_override.cpp" />
@@ -438,10 +438,12 @@
     <ClCompile Include="src\state\build_data\vendors\vendor_expression.cpp" />
     <ClCompile Include="src\client\content\vendors\package_vendor_build.cpp" />
     <ClCompile Include="src\state\build_data\cache\records\cache_hash_name_records.cpp" />
+    <ClCompile Include="src\state\build_data\cache\records\cache_entity_name_records.cpp" />
     <ClCompile Include="src\state\build_data\cache\records\cache_detail_links.cpp" />
     <ClCompile Include="src\state\build_data\scenarios\scenario_catalog.cpp" />
     <ClCompile Include="src\state\build_data\spawn_sets\spawn_set_catalog.cpp" />
     <ClCompile Include="src\state\build_data\hash_names\hash_name_catalog.cpp" />
+    <ClCompile Include="src\state\build_data\entity_names\entity_name_catalog.cpp" />
     <ClCompile Include="src\state\activity\forced\activity_forced_destination.cpp" />
     <ClCompile Include="src\state\build_data\runtime\build_data_roster_runtime.cpp" />
     <ClCompile Include="src\client\content\scenarios\scenario_build.cpp" />
@@ -909,7 +911,7 @@
     <ClInclude Include="src\client\runtime\runtime.h" />
     <ClInclude Include="src\client\movement\movement_settings_store.h" />
     <ClInclude Include="src\client\spawn\spawn_keybind_store.h" />
-    <ClInclude Include="src\client\content\entity_names\entity_name_cache.h" />
+    <ClInclude Include="src\client\content\entity_names\entity_name_build.h" />
     <ClInclude Include="src\client\content\entity_names\localized_aliases.h" />
     <ClInclude Include="src\client\inactivity\inactivity_settings_store.h" />
     <ClInclude Include="src\client\hooks\inactivity\inactivity_override.h" />
@@ -1065,6 +1067,8 @@
     <ClInclude Include="src\state\build_data\spawn_sets\spawn_set_catalog.h" />
     <ClInclude Include="src\state\build_data\hash_names\hash_name_catalog.h" />
     <ClInclude Include="src\state\build_data\hash_names\definition.h" />
+    <ClInclude Include="src\state\build_data\entity_names\entity_name_catalog.h" />
+    <ClInclude Include="src\state\build_data\entity_names\definition.h" />
     <ClInclude Include="src\state\build_data\spawn_sets\definition.h" />
     <ClInclude Include="src\state\build_data\vendors\definition.h" />
     <ClInclude Include="src\state\build_data\vendors\vendor_catalog.h" />

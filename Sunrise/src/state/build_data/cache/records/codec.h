@@ -257,6 +257,12 @@ namespace sunrise::state::build_data::cache::records {
  */
 [[nodiscard]] bool decode(const HashNameRecord& record, hash_names::Name& value) noexcept;
 
+[[nodiscard]] bool encode(const entity_names::Name& value,
+                          EntityNameRecord& record) noexcept;
+
+[[nodiscard]] bool decode(const EntityNameRecord& record,
+                          entity_names::Name& value) noexcept;
+
 /**
  * @param value Runtime row to pack.
  * @param record Receives the packed disk row.

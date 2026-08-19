@@ -1,30 +1,25 @@
-#include "entity_name_cache.h"
+#include "entity_name_build.h"
 #include "localized_aliases.h"
-
-#include <Windows.h>
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <memory>
 #include <span>
 #include <string_view>
 #include <vector>
 
-#include "../../../core/filesystem/path.h"
 #include "../../../core/logging/log.h"
-#include "../../content/items/packages/internal.h"
-#include "../../../middleware/content/packages/reader/reader.h"
 #include "../../../middleware/content/packages/tables/definition_index_table.h"
+#include "../../../state/build_data/runtime.h"
 
 namespace sunrise::client::content::entity_names {
 namespace {
 
 namespace package_reader = middleware::content::packages::reader;
 namespace package_tables = middleware::content::packages::tables;
+namespace names_state = state::build_data::entity_names;
 
 constexpr std::uint32_t kNamedBagClass = 0x80809478U;
 constexpr std::uint32_t kBudgetHeaderClass = 0x808099D1U;
@@ -35,12 +30,8 @@ constexpr std::size_t kBudgetBodyArrayOffset = 0x20;
 constexpr std::size_t kRowSize = 0x10;
 constexpr std::size_t kRowTagOffset = 0x08;
 constexpr std::size_t kMaximumRows = 1U << 20U;
-constexpr std::wstring_view kCacheSuffix = L"\\EntityNames.json";
-constexpr std::wstring_view kTemporarySuffix = L".tmp";
-constexpr std::string_view kMarker =
-    "\"generator\": \"sunrise_package_entity_names_v3\"";
 
-using Name = localized_aliases::Entry;
+using Name = names_state::Name;
 
 struct Collection {
     std::vector<Name> names{};
@@ -50,8 +41,6 @@ struct Collection {
     std::size_t packages{};
     std::size_t bags{};
 };
-
-std::atomic_bool g_attempted{};
 
 template <typename Value>
 [[nodiscard]] bool read_value(std::span<const std::byte> blob,
@@ -76,7 +65,7 @@ template <typename Value>
         return false;
     }
 
-    std::array<char, localized_aliases::kNameCapacity> path{};
+    std::array<char, names_state::kNameLength> path{};
     std::size_t length = 0;
     bool terminated = false;
     for (std::size_t cursor = static_cast<std::size_t>(startSigned);
@@ -134,7 +123,6 @@ void append_rows(std::span<const std::byte> blob,
     if (start > blob.size() || rows > (blob.size() - start) / kRowSize) {
         return;
     }
-
     for (std::size_t index = 0; index < rows; ++index) {
         const std::size_t row = start + index * kRowSize;
         std::uint32_t tag = 0;
@@ -161,58 +149,22 @@ void sort_unique(std::vector<std::uint32_t>& values) {
     return true;
 }
 
-[[nodiscard]] bool cache_path(core::path::Buffer& output) noexcept {
-    HMODULE module = nullptr;
-    constexpr DWORD flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
-                            | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
-    return GetModuleHandleExW(flags, reinterpret_cast<LPCWSTR>(&cache_path), &module) != FALSE
-        && core::path::artifact_directory(module, output)
-        && core::path::append(output, kCacheSuffix);
-}
-
-[[nodiscard]] bool current(const wchar_t* path) noexcept {
-    const HANDLE file = CreateFileW(path,
-                                    GENERIC_READ,
-                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                                    nullptr,
-                                    OPEN_EXISTING,
-                                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
-                                    nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-    std::array<char, 256> header{};
-    DWORD read = 0;
-    const bool ok = ReadFile(file, header.data(), static_cast<DWORD>(header.size()), &read, nullptr)
-                 != FALSE;
-    (void)CloseHandle(file);
-    return ok && std::string_view(header.data(), read).find(kMarker) != std::string_view::npos;
-}
-
-[[nodiscard]] bool extract(std::wstring_view directory, Collection& output) noexcept {
+[[nodiscard]] bool extract(const package_reader::Source& source,
+                           package_reader::Scratch& scratch,
+                           Collection& output) noexcept {
     std::vector<std::uint32_t> bags{};
     package_reader::ScanResult scan{};
-    if (!package_reader::scan_class(directory, kNamedBagClass, &collect_tag, &bags, scan)
-        || bags.empty()) {
+    if (!package_reader::scan_class(source.directory, kNamedBagClass, &collect_tag, &bags, scan)) {
         output.packages = scan.packages;
         return false;
     }
     output.packages = scan.packages;
     output.bags = bags.size();
 
-    package_reader::BlockKeys keys{};
-    if (!client::content::items::packages::collect_keys(keys)) {
-        return false;
-    }
-    auto scratch = std::make_unique<package_reader::Scratch>();
-    if (!scratch) {
-        return false;
-    }
-    const package_reader::Source source{directory, &keys};
     std::vector<std::byte> blob{};
     std::uint32_t classId = 0;
     for (const std::uint32_t tag : bags) {
-        if (package_reader::read_tag(source, *scratch, tag, blob, classId)
+        if (package_reader::read_tag(source, scratch, tag, blob, classId)
             && classId == kNamedBagClass) {
             append_rows(blob, kNamedBagArrayOffset, output);
         }
@@ -221,7 +173,7 @@ void sort_unique(std::vector<std::uint32_t>& values) {
 
     std::vector<std::uint32_t> budgetHeaders{};
     for (const std::uint32_t tag : output.related) {
-        if (!package_reader::read_tag(source, *scratch, tag, blob, classId)) {
+        if (!package_reader::read_tag(source, scratch, tag, blob, classId)) {
             continue;
         }
         if (classId == kEntityClass) {
@@ -233,7 +185,7 @@ void sort_unique(std::vector<std::uint32_t>& values) {
 
     std::vector<std::uint32_t> budgetBodies{};
     for (const std::uint32_t tag : budgetHeaders) {
-        if (!package_reader::read_tag(source, *scratch, tag, blob, classId)
+        if (!package_reader::read_tag(source, scratch, tag, blob, classId)
             || classId != kBudgetHeaderClass) {
             continue;
         }
@@ -245,7 +197,7 @@ void sort_unique(std::vector<std::uint32_t>& values) {
     }
     sort_unique(budgetBodies);
     for (const std::uint32_t tag : budgetBodies) {
-        if (package_reader::read_tag(source, *scratch, tag, blob, classId)
+        if (package_reader::read_tag(source, scratch, tag, blob, classId)
             && classId == kBudgetBodyClass) {
             append_rows(blob, kBudgetBodyArrayOffset, output);
         }
@@ -254,17 +206,13 @@ void sort_unique(std::vector<std::uint32_t>& values) {
     sort_unique(output.validEntities);
     const std::vector<std::uint32_t> directEntities = output.validEntities;
     for (const std::uint32_t tag : output.related) {
-        if (std::binary_search(directEntities.begin(), directEntities.end(), tag)) {
-            continue;
-        }
-        if (package_reader::read_tag(source, *scratch, tag, blob, classId)
+        if (!std::binary_search(directEntities.begin(), directEntities.end(), tag)
+            && package_reader::read_tag(source, scratch, tag, blob, classId)
             && classId == kEntityClass) {
             output.validEntities.push_back(tag);
         }
     }
-
     sort_unique(output.validEntities);
-    package_reader::close_files(*scratch);
 
     output.names.erase(std::remove_if(output.names.begin(),
                                       output.names.end(),
@@ -274,9 +222,7 @@ void sort_unique(std::vector<std::uint32_t>& values) {
                                                                      name.tag);
                                       }),
                        output.names.end());
-    if (!localized_aliases::append(directory, output.names, output.aliases)) {
-        return false;
-    }
+    (void)localized_aliases::append(source, scratch, output.names, output.aliases);
     std::sort(output.names.begin(), output.names.end(), [](const Name& left, const Name& right) {
         if (left.tag != right.tag) {
             return left.tag < right.tag;
@@ -293,133 +239,43 @@ void sort_unique(std::vector<std::uint32_t>& values) {
                                                           left.length) == 0;
                                    }),
                        output.names.end());
-    return !output.names.empty();
+    return output.names.size() <= names_state::kNameCapacity;
 }
 
-[[nodiscard]] bool write_all(HANDLE file, std::string_view text) noexcept {
-    DWORD written = 0;
-    return text.size() <= MAXDWORD
-        && WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr) != FALSE
-        && written == text.size();
-}
-
-[[nodiscard]] bool write_escaped(HANDLE file, std::string_view text) noexcept {
-    std::array<char, localized_aliases::kNameCapacity * 2 + 1> escaped{};
-    std::size_t used = 0;
-    for (const unsigned char value : text) {
-        if (value == '"' || value == '\\') {
-            escaped[used++] = '\\';
-            escaped[used++] = static_cast<char>(value);
-        } else if (value >= 0x20) {
-            escaped[used++] = static_cast<char>(value);
-        }
-    }
-    return write_all(file, {escaped.data(), used});
-}
-
-[[nodiscard]] bool write_cache(const core::path::Buffer& path,
-                               const std::vector<Name>& names) noexcept {
-    core::path::Buffer temporary = path;
-    if (!core::path::append(temporary, kTemporarySuffix)) {
-        return false;
-    }
-    (void)DeleteFileW(temporary.chars.data());
-    const HANDLE file = CreateFileW(temporary.chars.data(),
-                                    GENERIC_WRITE,
-                                    0,
-                                    nullptr,
-                                    CREATE_NEW,
-                                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
-                                    nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-
-    bool complete = write_all(file,
-                              "{\n  \"generator\": \"sunrise_package_entity_names_v3\",\n"
-                              "  \"entities\": {\n");
-    bool firstTag = true;
-    std::size_t cursor = 0;
-    while (complete && cursor < names.size()) {
-        const std::uint32_t tag = names[cursor].tag;
-        std::array<char, 32> prefix{};
-        const int length = std::snprintf(prefix.data(),
-                                         prefix.size(),
-                                         firstTag ? "    \"%08X\": [" : ",\n    \"%08X\": [",
-                                         tag);
-        complete = length > 0
-                && write_all(file, {prefix.data(), static_cast<std::size_t>(length)});
-        firstTag = false;
-        bool firstName = true;
-        while (complete && cursor < names.size() && names[cursor].tag == tag) {
-            const Name& name = names[cursor++];
-            complete = write_all(file, firstName ? "\"" : ", \"")
-                    && write_escaped(file, {name.text.data(), name.length})
-                    && write_all(file, "\"");
-            firstName = false;
-        }
-        complete = complete && write_all(file, "]");
-    }
-    complete = complete && write_all(file, "\n  }\n}\n");
-    complete = CloseHandle(file) != FALSE && complete;
-    if (complete) {
-        complete = MoveFileExW(temporary.chars.data(),
-                               path.chars.data(),
-                               MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
-                   != FALSE;
-    }
-    if (!complete) {
-        (void)DeleteFileW(temporary.chars.data());
-    }
-    return complete;
-}
-
-void report(const Collection& collection, bool written) noexcept {
+void report(const Collection& collection, const char* result) noexcept {
     std::array<char, 384> line{};
     const int length = std::snprintf(line.data(),
                                      line.size(),
-                                     "ev=entity_names stage=extract packages=%zu bags=%zu "
-                                     "wrappers=%zu placements=%zu aliases=%zu "
-                                     "names=%zu result=%s",
+                                     "ev=build_data stage=entity_names packages=%zu bags=%zu "
+                                     "wrappers=%zu placements=%zu aliases=%zu names=%zu result=%s",
                                      collection.packages,
                                      collection.bags,
                                      collection.aliases.wrappers,
                                      collection.aliases.placements,
                                      collection.aliases.resolved,
                                      collection.names.size(),
-                                     written ? "ok" : "fail");
+                                     result);
     if (length > 0) {
         core::log::write(core::log::Channel::client,
-                         core::log::Level::warn,
+                         result[0] == 'o' ? core::log::Level::info : core::log::Level::warn,
                          {line.data(), static_cast<std::size_t>(length)});
     }
 }
 
 } // namespace
 
-bool ensure(std::wstring_view packageDirectory) noexcept {
-    core::path::Buffer path{};
-    if (!cache_path(path)) {
-        return false;
-    }
-    if (current(path.chars.data())) {
+bool build(const package_reader::Source& source, package_reader::Scratch& scratch) noexcept {
+    if (state::build_data::entity_names_ready()) {
         return true;
     }
-
-    package_reader::BlockKeys keys{};
-    if (!client::content::items::packages::collect_keys(keys)) {
-        return false;
-    }
-    bool expected = false;
-    if (!g_attempted.compare_exchange_strong(expected, true)) {
-        return false;
-    }
-
     Collection collection{};
-    const bool extracted = extract(packageDirectory, collection);
-    const bool written = extracted && write_cache(path, collection.names);
-    report(collection, written);
-    return written;
+    if (!extract(source, scratch, collection)) {
+        report(collection, "extract");
+        return false;
+    }
+    const bool published = state::build_data::publish_entity_names(collection.names);
+    report(collection, published ? "ok" : "publish");
+    return published;
 }
 
 } // namespace sunrise::client::content::entity_names

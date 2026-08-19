@@ -4,22 +4,20 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cfloat>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <imgui.h>
 #include <span>
 #include <string_view>
 #include <vector>
 
-#include "../../../client/content/entity_names/entity_name_cache.h"
 #include "../../../client/content/items/packages/internal.h"
 #include "../../../client/hooks/spawn/spawn_runtime.h"
 #include "../../../core/filesystem/path.h"
 #include "../../../core/ui/components/picker/ui_picker_component.h"
 #include "../../../middleware/content/packages/reader/reader.h"
+#include "../../../state/build_data/runtime.h"
 
 namespace sunrise::server::ui::spawn {
 namespace {
@@ -30,8 +28,6 @@ namespace package_reader = middleware::content::packages::reader;
 namespace picker = core::ui::components::picker;
 
 constexpr std::uint32_t kEntityClass = 0x80809C0FU;
-constexpr std::string_view kNameObject = "\"entities\"";
-constexpr std::uint64_t kMaximumNameFile = 32ULL * 1024ULL * 1024ULL;
 
 enum class ObjectType : std::uint8_t {
     Inherited = 0,
@@ -113,12 +109,6 @@ struct Candidate {
     std::array<char, 224> label{};
 };
 
-struct EntityName {
-    std::uint32_t tag{};
-    std::array<char, 144> text{};
-    std::uint32_t order{};
-};
-
 struct Column {
     std::vector<Candidate> candidates{};
     std::vector<picker::Item> items{};
@@ -133,7 +123,7 @@ Column g_main{};
 Column g_projectile{};
 Column g_loot{};
 std::vector<Candidate> g_allMainCandidates{};
-std::vector<EntityName> g_names{};
+std::vector<state::build_data::entity_names::Name> g_names{};
 bool g_scanned{};
 std::size_t g_capturingKey{spawn_keys::kActionCount};
 
@@ -205,169 +195,17 @@ void key_name(std::uint32_t virtualKey, std::array<char, 64>& output) noexcept {
     return false;
 }
 
-template <std::size_t Capacity>
-[[nodiscard]] bool parse_string(std::string_view document,
-                                std::size_t& cursor,
-                                std::array<char, Capacity>& output) noexcept {
-    output = {};
-    if (cursor >= document.size() || document[cursor++] != '"') {
-        return false;
-    }
-    std::size_t written = 0;
-    while (cursor < document.size()) {
-        char value = document[cursor++];
-        if (value == '"') {
-            return true;
-        }
-        if (value == '\\') {
-            if (cursor >= document.size()) {
-                return false;
-            }
-            value = document[cursor++];
-            if (value == 'u') {
-                if (cursor + 4 > document.size()) {
-                    return false;
-                }
-                cursor += 4;
-                value = '?';
-            } else if (value == 'n') {
-                value = '\n';
-            } else if (value == 'r') {
-                value = '\r';
-            } else if (value == 't') {
-                value = '\t';
-            }
-        }
-        if (written + 1 < output.size()) {
-            output[written++] = value;
-        }
-    }
-    return false;
-}
-
-void skip_space(std::string_view document, std::size_t& cursor) noexcept {
-    while (cursor < document.size()) {
-        const char value = document[cursor];
-        if (value != ' ' && value != '\t' && value != '\r' && value != '\n') {
-            return;
-        }
-        ++cursor;
-    }
-}
-
-[[nodiscard]] bool load_names() noexcept {
-    g_names.clear();
-    HMODULE module = nullptr;
-    constexpr DWORD flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
-                            | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
-    if (GetModuleHandleExW(flags, reinterpret_cast<LPCWSTR>(&load_names), &module) == FALSE) {
-        return false;
-    }
-
-    std::vector<char> bytes{};
-    core::path::Buffer path{};
-    if (core::path::artifact_directory(module, path)
-        && core::path::append(path, L"\\EntityNames.json")) {
-        const HANDLE file = CreateFileW(path.chars.data(),
-                                        GENERIC_READ,
-                                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                                        nullptr,
-                                        OPEN_EXISTING,
-                                        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
-                                        nullptr);
-        LARGE_INTEGER length{};
-        if (file != INVALID_HANDLE_VALUE && GetFileSizeEx(file, &length) != FALSE
-            && length.QuadPart > 0
-            && static_cast<std::uint64_t>(length.QuadPart) <= kMaximumNameFile) {
-            bytes.resize(static_cast<std::size_t>(length.QuadPart));
-            DWORD read = 0;
-            if (ReadFile(file,
-                         bytes.data(),
-                         static_cast<DWORD>(bytes.size()),
-                         &read,
-                         nullptr)
-                    == FALSE
-                || read != bytes.size()) {
-                bytes.clear();
-            }
-        }
-        if (file != INVALID_HANDLE_VALUE) {
-            CloseHandle(file);
-        }
-    }
-    if (bytes.empty()) {
-        return false;
-    }
-
-    const std::string_view document(bytes.data(), bytes.size());
-    std::size_t cursor = document.find(kNameObject);
-    cursor = cursor == std::string_view::npos ? cursor : document.find('{', cursor);
-    if (cursor == std::string_view::npos) {
-        return false;
-    }
-    ++cursor;
-    while (cursor < document.size()) {
-        skip_space(document, cursor);
-        if (cursor < document.size() && document[cursor] == ',') {
-            ++cursor;
-            skip_space(document, cursor);
-        }
-        if (cursor >= document.size() || document[cursor] == '}') {
-            break;
-        }
-        std::array<char, 16> tagText{};
-        if (!parse_string(document, cursor, tagText)) {
-            return false;
-        }
-        std::uint32_t tag = 0;
-        const char* const end = tagText.data() + std::strlen(tagText.data());
-        const auto parsed = std::from_chars(tagText.data(), end, tag, 16);
-        skip_space(document, cursor);
-        if (parsed.ec != std::errc{} || parsed.ptr != end || cursor >= document.size()
-            || document[cursor++] != ':') {
-            return false;
-        }
-        skip_space(document, cursor);
-        if (cursor >= document.size() || document[cursor++] != '[') {
-            return false;
-        }
-        std::uint32_t order = 0;
-        for (;;) {
-            skip_space(document, cursor);
-            if (cursor < document.size() && document[cursor] == ',') {
-                ++cursor;
-                skip_space(document, cursor);
-            }
-            if (cursor >= document.size()) {
-                return false;
-            }
-            if (document[cursor] == ']') {
-                ++cursor;
-                break;
-            }
-            EntityName name{};
-            name.tag = tag;
-            name.order = order++;
-            if (!parse_string(document, cursor, name.text)) {
-                return false;
-            }
-            if (name.text[0] != '\0') {
-                g_names.push_back(name);
-            }
-        }
-    }
-    std::sort(g_names.begin(), g_names.end(), [](const EntityName& first, const EntityName& second) {
-        return first.tag != second.tag ? first.tag < second.tag : first.order < second.order;
-    });
-    return !g_names.empty();
-}
-
-[[nodiscard]] const char* name_of(std::uint32_t tag) noexcept {
-    const auto found = std::lower_bound(
-        g_names.begin(), g_names.end(), tag, [](const EntityName& value, std::uint32_t wanted) {
-            return value.tag < wanted;
+[[nodiscard]] std::span<const state::build_data::entity_names::Name>
+names_of(std::uint32_t tag) noexcept {
+    const auto first = std::lower_bound(
+        g_names.begin(), g_names.end(), tag, [](const auto& name, std::uint32_t wanted) {
+            return name.tag < wanted;
         });
-    return found != g_names.end() && found->tag == tag ? found->text.data() : nullptr;
+    const auto last = std::upper_bound(
+        first, g_names.end(), tag, [](std::uint32_t wanted, const auto& name) {
+            return wanted < name.tag;
+        });
+    return {first, last};
 }
 
 [[nodiscard]] bool projectile_name(std::string_view name) noexcept {
@@ -413,13 +251,14 @@ constexpr std::uint64_t kInvalidObjectTypeBit = 1ULL << 63;
 void add_candidate(Column& column,
                    std::uint32_t tag,
                    std::uint8_t type,
-                   std::wstring_view family) {
+                   std::wstring_view family,
+                   const state::build_data::entity_names::Name* resolvedName) {
     std::array<char, 96> package{};
     family_text(family, package);
     Candidate value{};
     value.tag = tag;
     value.type = static_cast<ObjectType>(type);
-    const char* const name = name_of(tag);
+    const char* const name = resolvedName != nullptr ? resolvedName->text.data() : nullptr;
     const char* typeName = object_type_name(value.type);
     std::array<char, 32> unknownType{};
     if (typeName == nullptr) {
@@ -454,14 +293,22 @@ bool collect_entity(void*, const package_reader::ClassEntry& entry) noexcept {
     if (!native::object_type(entry.tag, type)) {
         return true;
     }
-    const char* const name = name_of(entry.tag);
+    const auto names = names_of(entry.tag);
     const auto objectType = static_cast<ObjectType>(type);
-    if (objectType == ObjectType::Projectile || (name != nullptr && projectile_name(name))) {
-        add_candidate(g_projectile, entry.tag, type, entry.packageFamily);
-    } else if (objectType == ObjectType::ItemAmmo || objectType == ObjectType::ItemLoot) {
-        add_candidate(g_loot, entry.tag, type, entry.packageFamily);
+    const bool namedProjectile = std::any_of(names.begin(), names.end(), [](const auto& name) {
+        return projectile_name({name.text.data(), name.length});
+    });
+    Column* const column = objectType == ObjectType::Projectile || namedProjectile
+                               ? &g_projectile
+                           : objectType == ObjectType::ItemAmmo || objectType == ObjectType::ItemLoot
+                               ? &g_loot
+                               : &g_main;
+    if (names.empty()) {
+        add_candidate(*column, entry.tag, type, entry.packageFamily, nullptr);
     } else {
-        add_candidate(g_main, entry.tag, type, entry.packageFamily);
+        for (const auto& name : names) {
+            add_candidate(*column, entry.tag, type, entry.packageFamily, &name);
+        }
     }
     return true;
 }
@@ -480,7 +327,9 @@ void finish_column(Column& column) {
         std::unique(column.candidates.begin(),
                     column.candidates.end(),
                     [](const Candidate& first, const Candidate& second) {
-                        return first.tag == second.tag;
+                        return first.tag == second.tag
+                               && std::string_view(first.label.data())
+                                      == std::string_view(second.label.data());
                     }),
         column.candidates.end());
     column.items.clear();
@@ -507,12 +356,15 @@ void refresh() noexcept {
     g_projectile.candidates.clear();
     g_loot.candidates.clear();
     g_allMainCandidates.clear();
+    g_names.resize(state::build_data::entity_name_count());
+    std::size_t nameCount = 0;
+    if (!state::build_data::snapshot_entity_names(g_names, nameCount)) {
+        g_names.clear();
+    } else {
+        g_names.resize(nameCount);
+    }
     core::path::Buffer directory{};
     const bool hasDirectory = client::content::items::packages::package_directory(directory);
-    if (hasDirectory) {
-        (void)client::content::entity_names::ensure(directory.chars.data());
-    }
-    (void)load_names();
     if (native::ready() && hasDirectory) {
         package_reader::ScanResult result{};
         (void)package_reader::scan_class_entries(
@@ -652,6 +504,8 @@ void draw_settings(Column& column, const char* id, SpawnAllMode spawnAllMode) no
                     tags.push_back(candidate.tag);
                 }
             }
+            std::sort(tags.begin(), tags.end());
+            tags.erase(std::unique(tags.begin(), tags.end()), tags.end());
             (void)native::request_line(tags,
                                        native::Origin::crosshair,
                                        static_cast<std::uint32_t>((std::max)(column.perRow, 1)),

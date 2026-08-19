@@ -3,18 +3,15 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <string_view>
 #include <vector>
+
+#include "../../../middleware/content/packages/reader/reader.h"
+#include "../../../state/build_data/entity_names/definition.h"
 
 namespace sunrise::client::content::entity_names::localized_aliases {
 
-inline constexpr std::size_t kNameCapacity = 128;
-
-struct Entry {
-    std::uint32_t tag{};
-    std::array<char, kNameCapacity> text{};
-    std::uint8_t length{};
-};
+using Entry = state::build_data::entity_names::Name;
+inline constexpr std::size_t kNameCapacity = state::build_data::entity_names::kNameLength;
 
 struct Result {
     std::size_t wrappers{};
@@ -22,7 +19,8 @@ struct Result {
     std::size_t resolved{};
 };
 
-[[nodiscard]] bool append(std::wstring_view packageDirectory,
+[[nodiscard]] bool append(const middleware::content::packages::reader::Source& source,
+                          middleware::content::packages::reader::Scratch& scratch,
                           std::vector<Entry>& output,
                           Result& result) noexcept;
 

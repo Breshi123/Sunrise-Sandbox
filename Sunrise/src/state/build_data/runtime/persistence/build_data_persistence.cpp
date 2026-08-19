@@ -12,6 +12,7 @@
 #include "../../cache/records/validation.h"
 #include "../../collectibles/collectible_catalog.h"
 #include "../../constants/investment_constant_catalog.h"
+#include "../../entity_names/entity_name_catalog.h"
 #include "../../hash_names/hash_name_catalog.h"
 #include "../../inventory/buckets/inventory_bucket_catalog.h"
 #include "../../items/details/item_detail_catalog.h"
@@ -87,6 +88,7 @@ to_record(const constants::InvestmentConstants& value) noexcept {
            && spawn_sets::snapshot_hashes(scratch.spawnNameHashes, counts.spawnNameHashes)
            && spawn_sets::snapshot_points(scratch.spawnPoints, counts.spawnPoints)
            && hash_names::snapshot(scratch.hashNames, counts.hashNames)
+           && entity_names::snapshot(scratch.entityNames, counts.entityNames)
            && vendors::snapshot_index(scratch.vendorIndex, counts.vendorIndex)
            && vendors::snapshot_definitions(scratch.vendorDefinitions, counts.vendorDefinitions)
            && vendors::snapshot_sale_rows(scratch.vendorSaleRows, counts.vendorSaleRows)
@@ -110,7 +112,7 @@ bool all_domains_ready() noexcept {
            && material_requirement_sets_ready() && inventory_bucket_descriptors_ready()
            && socket_entry_lists_ready() && ability_buckets_ready()
            && progression_definitions_ready() && scenario_layouts_ready() && spawn_sets_ready()
-           && hash_names_ready() && constants::find(published);
+           && hash_names_ready() && entity_names_ready() && constants::find(published);
 }
 
 /** Gives mutable views over every fixed snapshot buffer. */
@@ -167,6 +169,8 @@ cache::records::MutableDomains scratch_domains(Context& state) noexcept {
         ensure_scratch<spawn_sets::Point, spawn_sets::kPointCapacity>(state.spawnPointScratch);
     const auto hashNames =
         ensure_scratch<hash_names::Name, hash_names::kNameCapacity>(state.hashNameScratch);
+    const auto entityNames = ensure_scratch<entity_names::Name, entity_names::kNameCapacity>(
+        state.entityNameScratch);
     const auto vendorIndex =
         ensure_scratch<vendors::IndexEntry, vendors::kIndexCapacity>(state.vendorIndexScratch);
     const auto vendorDefinitions =
@@ -198,6 +202,7 @@ cache::records::MutableDomains scratch_domains(Context& state) noexcept {
         spawnNameHashes,
         spawnPoints,
         hashNames,
+        entityNames,
         vendorIndex,
         vendorDefinitions,
         vendorSaleRows,
@@ -235,6 +240,7 @@ void release_scratch_locked(Context& state) noexcept {
     release_bank(state.spawnNameHashScratch);
     release_bank(state.spawnPointScratch);
     release_bank(state.hashNameScratch);
+    release_bank(state.entityNameScratch);
     release_bank(state.vendorIndexScratch);
     release_bank(state.vendorDefinitionScratch);
     release_bank(state.vendorSaleRowScratch);
@@ -294,6 +300,7 @@ cache::records::Domains occupied_domains(Context& state,
                                               counts.spawnNameHashes},
         std::span<const spawn_sets::Point>{state.spawnPointScratch.data(), counts.spawnPoints},
         std::span<const hash_names::Name>{state.hashNameScratch.data(), counts.hashNames},
+        std::span<const entity_names::Name>{state.entityNameScratch.data(), counts.entityNames},
         std::span<const vendors::IndexEntry>{state.vendorIndexScratch.data(), counts.vendorIndex},
         std::span<const vendors::Definition>{state.vendorDefinitionScratch.data(),
                                              counts.vendorDefinitions},
