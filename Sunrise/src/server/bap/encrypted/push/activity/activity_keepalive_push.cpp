@@ -137,9 +137,8 @@ bool consume_activity_keepalive(Session& session,
         // and the citizen advertisement inside the body is already gated on `privateCurrent`.
         //
         // It still owes one membership body. The client's msg 12 handler is the only writer of the
-        // flag that binds a world container to this ActivityClient, and until that bind lands the
-        // entity-slot grant sent at join has no view to reach:
-        // `RE/31 "A grant reaches a view only through a bound world container"`.
+        // flag that binds a world container to this ActivityClient, and a grant reaches a view
+        // only through a bound container, so until that bind lands the join grant has no view.
         //
         // Exactly one body per binding. The flag the client sets is one-way, it never acknowledges
         // one on this link, and a link that joined a session it did not allocate never reports a

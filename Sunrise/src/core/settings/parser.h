@@ -169,12 +169,6 @@ private:
     [[nodiscard]] bool character(state::CharacterState& output) noexcept;
 
     /**
-     * Reads one selectable ability's socket entry.
-     * @param output Receives the entry only when it is inside the socket-entry bound.
-     * @return True when the value parses and names a possible entry.
-     */
-    [[nodiscard]] bool ability_entry(std::uint8_t& output) noexcept;
-    /**
      * Parses the optional equipment object with its fixed named slots.
      * @param output Receives present items only after the whole object is valid.
      * @return True when every name is known and appears at most once.

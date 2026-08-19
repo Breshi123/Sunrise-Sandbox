@@ -158,10 +158,8 @@ namespace family4_loadout = middleware::datagen::family4::loadout;
 
 /**
  * Applies canonical mutation generations after one shape-only equipment transition.
- *
- * Every surviving instance must preserve its native bucket. A generation advances exactly when
- * its published native row or equipped marker changes, and a second resolution proves that the
- * stamped after-image retained the staged placement.
+ * Every surviving instance keeps its native bucket, and a generation advances exactly when its
+ * published row or equipped marker changes. An equip swap rewrites the moved serial afterwards.
  */
 [[nodiscard]] bool
 finalize_equipment_transition(const AccountState& account,
@@ -292,7 +290,12 @@ finalize_equipment_transition(const AccountState& account,
            && left.level == right.level && left.quantity == right.quantity
            && left.flags == right.flags && left.sockets.policy == right.sockets.policy
            && left.sockets.plugCount == right.sockets.plugCount
-           && left.sockets.plugs == right.sockets.plugs;
+           && left.sockets.plugs == right.sockets.plugs
+           && left.movementAbilityEntry == right.movementAbilityEntry
+           && left.grenadeAbilityEntry == right.grenadeAbilityEntry
+           && left.superAbilityEntry == right.superAbilityEntry
+           && left.meleeAbilityEntry == right.meleeAbilityEntry
+           && left.classAbilityEntry == right.classAbilityEntry;
 }
 
 /** Records one checked native item-state transition. */
@@ -347,11 +350,6 @@ void report_item_state(std::string_view stage,
         || left.appearanceValue != right.appearanceValue
         || left.lastOrbitedDestination != right.lastOrbitedDestination
         || left.contentBypass != right.contentBypass
-        || left.movementAbilityEntry != right.movementAbilityEntry
-        || left.grenadeAbilityEntry != right.grenadeAbilityEntry
-        || left.superAbilityEntry != right.superAbilityEntry
-        || left.meleeAbilityEntry != right.meleeAbilityEntry
-        || left.classAbilityEntry != right.classAbilityEntry
         || left.nextInventorySerial != right.nextInventorySerial
         || left.inventory.count != right.inventory.count) {
         return false;

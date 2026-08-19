@@ -1,5 +1,6 @@
 #include "sunrise_ui_theme.h"
 
+#include <algorithm>
 #include <imgui.h>
 
 #include "../scaling/dpi/ui_dpi_scaling.h"
@@ -107,6 +108,9 @@ void apply() noexcept {
     // Scaling a fresh default style stops repeated monitor changes from building up error.
     const float scale = scaling::dpi::current();
     style.ScaleAllSizes(scale);
+    // ScaleAllSizes truncates this one to a whole number, so any factor below 1 zeroes it and the
+    // cursor draws with no area. Held at 1 instead, which is the size it is authored at.
+    style.MouseCursorScale = (std::max)(1.0F, style.MouseCursorScale);
     style.FontSizeBase = fontSizeBase;
     style.FontScaleMain = scale;
     ImGui::GetStyle() = style;

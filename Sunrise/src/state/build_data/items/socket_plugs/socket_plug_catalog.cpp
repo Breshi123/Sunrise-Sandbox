@@ -112,6 +112,37 @@ bool allowed(std::uint16_t itemDefinitionIndex,
     return std::binary_search(range.begin(), range.end(), plugDefinitionIndex);
 }
 
+/** Walks the members of one lane's pool under a shared hold. */
+bool visit_pool(std::uint16_t itemDefinitionIndex,
+                std::uint8_t lane,
+                MemberVisitor visitor,
+                void* context) noexcept {
+    if (lane >= kLaneCapacity || visitor == nullptr) {
+        return false;
+    }
+    const Lock::Shared guard(g_lock);
+    const auto rules = g_rules.rows();
+    const auto pools = g_pools.rows();
+    const auto members = g_members.rows();
+    const Rule key{itemDefinitionIndex, lane, 0, 0};
+    const auto found = std::lower_bound(rules.begin(), rules.end(), key, rule_less);
+    if (found == rules.end() || found->itemDefinitionIndex != itemDefinitionIndex
+        || found->lane != lane || found->poolIndex >= pools.size()) {
+        return false;
+    }
+    const Pool& pool = pools[found->poolIndex];
+    if (pool.memberOffset > members.size()
+        || pool.memberCount > members.size() - pool.memberOffset) {
+        return false;
+    }
+    for (const Member member : members.subspan(pool.memberOffset, pool.memberCount)) {
+        if (!visitor(context, member)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /** Answers whether one definition occurs in any installed ordinary-socket plug pool. */
 bool contains(Member plugDefinitionIndex) noexcept {
     const Lock::Shared guard(g_lock);

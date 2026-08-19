@@ -216,10 +216,9 @@ bool append_banner_notification(Scratch& scratch,
 }
 
 /**
- * Appends the family-zero pair that follows an opcode-504 pick.
- * The Client holds the objIdx-1 buffer for one character at a time, allocated from the character
- * the anchor names, so the pair moves with the pick or the banner keeps the old emblem. A pick
- * naming the character the pair already holds republishes it in place.
+ * Appends the family-zero pair that follows an opcode-504 pick. The Client holds the objIdx-1
+ * buffer for one character at a time, so the pair moves with the pick or the banner keeps the old
+ * emblem. A pick on the character it already holds republishes in place.
  * @param scratch Lock-owned transform buffers.
  * @param before Queuez state after the family-four move.
  * @param selectedCharacter Character the pick named.
@@ -369,6 +368,49 @@ bool append_socket_appearance_refresh_notification(
         scratch, refresh, prepared, "socket_appearance", key, nonce, response, written);
 }
 
+/** Appends one Family-0 character ability refresh after a subclass selection. */
+bool append_subclass_appearance_refresh_notification(
+    Scratch& scratch,
+    const queuez::CharacterAppearanceRefresh& refresh,
+    const state::PendingSubclassSelection& mutation,
+    std::span<const std::byte, state::kAesKeySize> key,
+    std::array<std::byte, state::kBapNonceSize>& nonce,
+    std::span<std::byte> response,
+    std::size_t& written) noexcept {
+    // Index of the subclass slot in the authored equipment array.
+    constexpr std::size_t kSubclassSlot =
+        static_cast<std::size_t>(state::account::inventory::EquipmentSlot::subclass);
+    if (!mutation.prepared || mutation.characterSoid != refresh.characterSoid
+        || kSubclassSlot >= mutation.afterCharacter.equipment.slots.size()
+        || !mutation.afterCharacter.equipment.slots[kSubclassSlot].has_value()
+        || mutation.afterCharacter.equipment.slots[kSubclassSlot]->instanceSoid
+               != mutation.subclassInstanceSoid) {
+        return false;
+    }
+    state::build_data::items::details::Definition detail{};
+    if (!state::build_data::find_configured_item_detail(mutation.subclassDefinitionIndex, detail)
+        || detail.definitionIndex != mutation.subclassDefinitionIndex
+        || detail.definitionHash != mutation.subclassDefinitionHash
+        || !detail.equipmentSlot.has_value() || *detail.equipmentSlot < 0
+        || static_cast<std::size_t>(*detail.equipmentSlot)
+               >= state::build_data::items::details::kEquipmentSlotCount) {
+        return false;
+    }
+    snapshot::Prepared prepared{};
+    if (!snapshot::prepare_character_appearance_refresh(
+            scratch,
+            refresh,
+            mutation.afterCharacter,
+            mutation.characterIndex,
+            static_cast<std::uint8_t>(*detail.equipmentSlot),
+            true,
+            prepared)) {
+        return false;
+    }
+    return append_appearance_frame(
+        scratch, refresh, prepared, "subclass_appearance", key, nonce, response, written);
+}
+
 /** Appends the Family-3 character-then-roster refresh owed by one equipment mutation. */
 bool append_equipment_roster_refresh_notification(
     Scratch& scratch,
@@ -414,6 +456,34 @@ bool append_socket_roster_refresh_notification(Scratch& scratch,
     }
     return append_roster_appearance_frame(
         scratch, refresh, prepared, "socket_roster", key, nonce, response, written);
+}
+
+/** Appends the Family-3 character-only refresh owed by a subclass selection. */
+bool append_subclass_roster_refresh_notification(Scratch& scratch,
+                                                 const queuez::RosterAppearanceRefresh& refresh,
+                                                 const state::PendingSubclassSelection& mutation,
+                                                 std::span<const std::byte, state::kAesKeySize> key,
+                                                 std::array<std::byte, state::kBapNonceSize>& nonce,
+                                                 std::span<std::byte> response,
+                                                 std::size_t& written) noexcept {
+    // Index of the subclass slot in the authored equipment array.
+    constexpr std::size_t kSubclassSlot =
+        static_cast<std::size_t>(state::account::inventory::EquipmentSlot::subclass);
+    if (!mutation.prepared || refresh.includeRoster
+        || mutation.characterSoid != refresh.characterSoid
+        || kSubclassSlot >= mutation.afterCharacter.equipment.slots.size()
+        || !mutation.afterCharacter.equipment.slots[kSubclassSlot].has_value()
+        || mutation.afterCharacter.equipment.slots[kSubclassSlot]->instanceSoid
+               != mutation.subclassInstanceSoid) {
+        return false;
+    }
+    snapshot::Prepared prepared{};
+    if (!snapshot::prepare_roster_appearance_refresh(
+            scratch, refresh, mutation.afterCharacter, mutation.characterIndex, prepared)) {
+        return false;
+    }
+    return append_roster_appearance_frame(
+        scratch, refresh, prepared, "subclass_roster", key, nonce, response, written);
 }
 
 /** Refreshes the selected character's complete Family-0 appearance from committed State. */

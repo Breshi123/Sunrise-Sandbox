@@ -133,18 +133,28 @@ find_resolved_position(const middleware::datagen::family4::loadout::ResolvedLoad
     CharacterState& after,
     std::size_t& movedItemCount) noexcept;
 [[nodiscard]] bool same_character(const CharacterState& left, const CharacterState& right) noexcept;
+/**
+ * @param pinnedPlugHash For a rolled socket's apply or re-roll, the result plug an earlier
+ *        staging rolled, so a re-staging reproduces the same after-image; 0 rolls afresh.
+ */
 [[nodiscard]] bool stage_socket_plug(const AccountState& snapshot,
                                      std::size_t characterIndex,
                                      std::uint64_t targetInstanceSoid,
                                      std::uint8_t socketLane,
                                      std::uint16_t plugDefinitionIndex,
-                                     PendingSocketPlug& mutation) noexcept;
+                                     PendingSocketPlug& mutation,
+                                     std::uint32_t pinnedPlugHash = 0) noexcept;
 [[nodiscard]] bool stage_item_state(const AccountState& snapshot,
                                     std::size_t characterIndex,
                                     std::uint64_t targetInstanceSoid,
                                     std::uint16_t targetDefinitionIndex,
                                     std::uint32_t flags,
                                     PendingItemState& mutation) noexcept;
+[[nodiscard]] bool stage_subclass_selection(const AccountState& snapshot,
+                                            std::size_t characterIndex,
+                                            std::uint64_t subclassInstanceSoid,
+                                            std::uint8_t requestedEntry,
+                                            PendingSubclassSelection& mutation) noexcept;
 [[nodiscard]] bool next_item_instance_soid(const AccountState& account,
                                            std::uint64_t& output) noexcept;
 [[nodiscard]] bool next_profile_item_instance_soid(const AccountState& account,

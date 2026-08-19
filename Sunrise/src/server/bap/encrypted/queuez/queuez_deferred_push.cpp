@@ -171,6 +171,79 @@ void report_repush(const char* stage, std::size_t bytes) noexcept {
     return true;
 }
 
+/**
+ * Re-derives the selected character's appearance and roster once the ability-bucket rebuild owed
+ * by a subclass selection has landed. The refresh sent inline with the opcode-801 response can
+ * still carry empty buckets, because that rebuild runs off the Client content-extraction pump.
+ * @param session Auth, nonce and queuez state owned by the connection.
+ * @param scratch Transform buffers owned by the lock.
+ * @param response Whole-frame storage owned by the caller.
+ * @param written Gets the encoded notification size in bytes.
+ * @param touchesScratch Set before any scratch buffer is used.
+ * @return True when at least one owed record refreshes.
+ */
+[[nodiscard]] bool consume_ability_refresh(Session& session,
+                                           Scratch& scratch,
+                                           std::span<std::byte> response,
+                                           std::size_t& written,
+                                           bool& touchesScratch) noexcept {
+    if (!session.abilityRefreshArmed || GetTickCount64() < session.abilityRefreshDueTick) {
+        return false;
+    }
+    // Nothing is owed until a family that reads abilities is subscribed. The arm stays set, the
+    // same way the banner re-push below keeps its own.
+    if (!session.queuez.family0Active && !session.queuez.family3Active) {
+        return false;
+    }
+    touchesScratch = true;
+
+    auto nextSendNonce = session.sendNonce;
+    std::size_t framedSize = 0;
+    queuez::SessionState current = session.queuez;
+    bool wrote = false;
+    if (current.family0Active) {
+        queuez::SessionState appearanceAfter{};
+        if (push::append_account_resync_appearance_notification(scratch,
+                                                                current,
+                                                                state::bap().sessionKey,
+                                                                nextSendNonce,
+                                                                scratch.framed,
+                                                                framedSize,
+                                                                appearanceAfter)) {
+            current = appearanceAfter;
+            wrote = true;
+        }
+    }
+    if (current.family3Active) {
+        queuez::SessionState rosterAfter{};
+        if (push::append_account_resync_roster_notification(scratch,
+                                                            current,
+                                                            state::bap().sessionKey,
+                                                            nextSendNonce,
+                                                            scratch.framed,
+                                                            framedSize,
+                                                            rosterAfter)) {
+            current = rosterAfter;
+            wrote = true;
+        }
+    }
+    if (!wrote || framedSize == 0 || framedSize > response.size() || !queuez::valid(current)) {
+        core::log::write(core::log::Channel::server,
+                         core::log::Level::warn,
+                         "ev=queuez stage=ability_refresh result=fail");
+        return false;
+    }
+    std::copy_n(scratch.framed.begin(), framedSize, response.begin());
+    written = framedSize;
+    session.sendNonce = nextSendNonce;
+    session.queuez = current;
+    // The frame is committed here, so the arm is committed with it. Disarming any earlier drops
+    // the owed refresh on a transient encode failure.
+    session.abilityRefreshArmed = false;
+    report_repush("ability_refresh", framedSize);
+    return true;
+}
+
 } // namespace
 
 /**
@@ -197,6 +270,9 @@ bool consume_deferred(Session& session,
     // A failed resync remains armed and blocks unrelated deferred output until it can be retried.
     if (session.accountResyncArmed) {
         return false;
+    }
+    if (consume_ability_refresh(session, scratch, response, written, touchesScratch)) {
+        return true;
     }
     if (!session.family4RepushArmed || session.family4RepushRoot == 0
         || GetTickCount64() < session.family4RepushDueTick) {

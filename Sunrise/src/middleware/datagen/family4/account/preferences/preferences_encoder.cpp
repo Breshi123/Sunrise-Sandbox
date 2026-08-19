@@ -11,12 +11,14 @@ constexpr std::uint16_t kUnboundInputCode = 0x0074;
 constexpr std::int32_t kOpenSeedVersion = 0;
 /**
  * Seed version 1 closes a gate so the client keeps the replicated values behind it.
- * The keybinding gate stays open so the client seeds its own defaults. The post-processing gate
- * stays closed, or local cvars would overwrite its 3 replicated fields on every sign-in.
+ * The keybinding gate stays closed because Sunrise supplies the modeled preferences. The
+ * post-processing gate stays closed, or local cvars overwrite its 3 replicated fields each login.
  */
 constexpr std::int32_t kClosedSeedVersion = 1;
 /** Source 0 makes later input reads use the replicated keybinding array. */
 constexpr std::uint8_t kReplicatedBindingSource = 0;
+/** Source 1 makes later input reads use the computer-local keybindings. */
+constexpr std::uint8_t kComputerBindingSource = 1;
 
 /**
  * Converts a semantic boolean to the native 1-byte form.
@@ -53,8 +55,11 @@ bool encode(const state::account::settings::AccountSettings& settings,
     record = {};
     bindingsRecord = {};
     record.postProcessingSeedVersion = kClosedSeedVersion;
-    bindingsRecord.accountSeedVersion = kOpenSeedVersion;
-    bindingsRecord.sourceSelector = kReplicatedBindingSource;
+    bindingsRecord.accountSeedVersion = kClosedSeedVersion;
+    bindingsRecord.sourceSelector =
+        settings.keyBindingSource == state::account::settings::KeyBindingSource::account
+            ? kReplicatedBindingSource
+            : kComputerBindingSource;
 
     const auto& controls = settings.controls;
     record.buttonLayout = controls.buttonLayout;
@@ -88,6 +93,8 @@ bool encode(const state::account::settings::AccountSettings& settings,
     record.brightness = display.brightness;
     record.showFps = native_boolean(display.showFps);
     record.hdrMode = display.hdrMode;
+    bindingsRecord.verticalSyncMirror = display.verticalSyncInterval;
+    bindingsRecord.fieldOfViewAdjustment = display.fieldOfView;
     record.calibrationPrimary = display.calibrationPrimary;
     record.calibrationAlpha = display.calibrationAlpha;
 

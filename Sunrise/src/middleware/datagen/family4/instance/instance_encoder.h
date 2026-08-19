@@ -16,6 +16,8 @@ enum class SocketEntryState : std::uint8_t {
     absent = 0,
     /** The entry exists but has not received a runtime selection. */
     ready = 16,
+    /** The character selected this entry previously, but another entry is active now. */
+    acquired = 17,
     /** The character has selected this entry, or it is the super lane. */
     active = 18,
 };

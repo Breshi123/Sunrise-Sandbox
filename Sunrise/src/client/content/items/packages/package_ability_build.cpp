@@ -108,21 +108,44 @@ selector_destination(const Walk& walk, std::uint8_t entryIndex, std::uint8_t& bu
 }
 
 /**
- * Chooses the active plug source of every entry group.
- * An entry group holds alternatives, and the summary selection names which one the character has.
+ * Chooses the active plug source of every entry group, and any bundled siblings a pick carries.
+ * A group holds alternatives and the summary selection names one. A pick can also bundle same-group
+ * entries that publish together; those carry their own source, so they are marked forced-active.
  * @param walk Subclass walk state.
  * @param sources Receives one active plug source per group, keyed by group.
+ * @param forcedActive Receives which entries are active regardless of plug source.
  */
-void chosen_sources(const Walk& walk, std::array<std::uint32_t, 256>& sources) noexcept {
+void chosen_sources(const Walk& walk,
+                    std::array<std::uint32_t, 256>& sources,
+                    std::array<bool, pool::kEntryCapacity>& forcedActive) noexcept {
     sources.fill(pool::kNoPlugSource);
+    forcedActive.fill(false);
+    // A group of 2 or 3 entries is mutually exclusive alternatives: exactly one contributes its
+    // hashes. An Attunement's group packs several 4-node options into one group id, so a
+    // population past the widest single bundle means its members activate in same-sized runs.
+    std::array<std::uint16_t, 256> groupPopulation{};
+    for (std::size_t index = 0; index < walk.entryCount; ++index) {
+        ++groupPopulation[walk.entries[index].group];
+    }
     for (const std::uint8_t entryIndex : walk.selected) {
         if (entryIndex >= walk.entryCount) {
             continue;
         }
         const pool::Entry& entry = walk.entries[entryIndex];
-        if (entry.plugSource != pool::kNoPlugSource
-            && sources[entry.group] == pool::kNoPlugSource) {
-            sources[entry.group] = entry.plugSource;
+        if (entry.plugSource == pool::kNoPlugSource
+            || sources[entry.group] != pool::kNoPlugSource) {
+            continue;
+        }
+        sources[entry.group] = entry.plugSource;
+        if (groupPopulation[entry.group] <= state::kMaxAttunementBundleSize) {
+            continue;
+        }
+        forcedActive[entryIndex] = true;
+        for (std::size_t offset = 1;
+             offset < state::kMaxAttunementBundleSize && entryIndex + offset < walk.entryCount
+             && walk.entries[entryIndex + offset].group == entry.group;
+             ++offset) {
+            forcedActive[entryIndex + offset] = true;
         }
     }
 }
@@ -130,11 +153,18 @@ void chosen_sources(const Walk& walk, std::array<std::uint32_t, 256>& sources) n
 /**
  * Decides whether one entry contributes its pool's hashes.
  * @param entry Candidate entry.
+ * @param entryIndex Its index, checked against the forced-active bundle siblings.
  * @param sources Active plug source per group.
- * @return True when the entry is the group's active alternative, or is the super.
+ * @param forcedActive Entries active regardless of plug source, from a bundled pick.
+ * @return True when the entry is the group's active alternative, a bundled sibling, or the super.
  */
 [[nodiscard]] bool active(const pool::Entry& entry,
-                          const std::array<std::uint32_t, 256>& sources) noexcept {
+                          std::size_t entryIndex,
+                          const std::array<std::uint32_t, 256>& sources,
+                          const std::array<bool, pool::kEntryCapacity>& forcedActive) noexcept {
+    if (entryIndex < forcedActive.size() && forcedActive[entryIndex]) {
+        return true;
+    }
     if (entry.plugSource == pool::kNoPlugSource) {
         return entry.kind == kSuperKind;
     }
@@ -163,6 +193,33 @@ void chosen_sources(const Walk& walk, std::array<std::uint32_t, 256>& sources) n
         output.buckets[bucket].kind = records[0].kind;
     }
     return true;
+}
+
+/**
+ * Claims a bucket kind for every forced-active bundle sibling the 6 canonical selections miss.
+ * A bundle member can replace an ability outright under its own bucket, and nothing else ever
+ * claims that kind. A sibling with no bucket, or one already claimed, is skipped, not failed.
+ * @param walk Subclass walk state.
+ * @param forcedActive Entries active regardless of plug source, from a bundled pick.
+ * @param output Bucket kinds, extended in place.
+ */
+void claim_bundle_kinds(const Walk& walk,
+                        const std::array<bool, pool::kEntryCapacity>& forcedActive,
+                        domain::Definition& output) noexcept {
+    for (std::size_t entryIndex = 0; entryIndex < walk.entryCount; ++entryIndex) {
+        if (!forcedActive[entryIndex]) {
+            continue;
+        }
+        std::array<pool::PoolRecord, pool::kPoolRecordCapacity> records{};
+        std::uint8_t bucket = 0;
+        if (records_of(walk, walk.entries[entryIndex], 0, records) == 0
+            || records[0].kind == pool::kEmptyByte
+            || !selector_destination(walk, static_cast<std::uint8_t>(entryIndex), bucket)
+            || output.buckets[bucket].kind != domain::kEmptyBucketKind) {
+            continue;
+        }
+        output.buckets[bucket].kind = records[0].kind;
+    }
 }
 
 /**
@@ -214,17 +271,57 @@ bool build_ability_buckets(const reader::Source& source,
         return false;
     }
     // Kinds must be complete before any hash is filed, because a hash is routed by matching its
-    // category against a bucket's kind.
+    // category against a bucket's kind. Bundle siblings are folded in after the canonical 6, so a
+    // sibling can never steal a bucket one of the character's own picks already claimed.
     std::array<std::uint32_t, 256> sources{};
-    chosen_sources(walk, sources);
+    std::array<bool, pool::kEntryCapacity> forcedActive{};
+    chosen_sources(walk, sources, forcedActive);
+    claim_bundle_kinds(walk, forcedActive, output);
     for (std::size_t entryIndex = 0; entryIndex < walk.entryCount; ++entryIndex) {
-        if (!active(walk.entries[entryIndex], sources)) {
+        if (!active(walk.entries[entryIndex], entryIndex, sources, forcedActive)) {
             continue;
         }
         std::array<pool::PoolRecord, pool::kPoolRecordCapacity> records{};
         const std::size_t count = records_of(walk, walk.entries[entryIndex], 0, records);
         for (std::size_t entry = 0; entry < count; ++entry) {
             file_hash(records[entry], output);
+        }
+    }
+    return true;
+}
+
+/**
+ * Resolves which of the 12 semantic ability buckets every entry in one socket-entry list reaches.
+ * Table position does not say which slot an entry fills and a bundled group can mix slots; only
+ * the selector chain does, so every entry is walked once, independent of any character.
+ * @param source Package source.
+ * @param scratch Reader scratch.
+ * @param listDefinition One socket-entry list's definition bytes.
+ * @param blob Scratch storage reused for every pool blob.
+ * @param output Receives one resolved bucket per entry, or the no-destination sentinel.
+ * @return True when the list's entries read.
+ */
+bool resolve_entry_buckets(
+    const reader::Source& source,
+    reader::Scratch& scratch,
+    std::span<const std::byte> listDefinition,
+    std::vector<std::byte>& blob,
+    std::array<std::uint8_t, state::build_data::socket_entry_lists::kEntryCapacity>&
+        output) noexcept {
+    output.fill(state::build_data::socket_entry_buckets::kNoDestinationBucket);
+    Walk walk{};
+    walk.source = &source;
+    walk.scratch = &scratch;
+    walk.blob = &blob;
+    walk.entryCount = pool::read_entries(listDefinition, walk.entries);
+    if (walk.entryCount == 0) {
+        return false;
+    }
+    for (std::size_t entryIndex = 0; entryIndex < walk.entryCount && entryIndex < output.size();
+         ++entryIndex) {
+        std::uint8_t bucket = 0;
+        if (selector_destination(walk, static_cast<std::uint8_t>(entryIndex), bucket)) {
+            output[entryIndex] = bucket;
         }
     }
     return true;

@@ -299,6 +299,76 @@ bool stage_socket_plug(const SessionState& before,
     return staged;
 }
 
+/** Stages a resident subclass item-instance upsert while preserving the Family-4 manifest. */
+bool stage_subclass_selection(const SessionState& before,
+                              std::uint64_t accountSoid,
+                              std::uint64_t characterSoid,
+                              std::uint64_t subclassInstanceSoid,
+                              SubclassSelection& selection) noexcept {
+    selection = {};
+    std::uint32_t accountDefinitionId = 0;
+    std::uint32_t characterDefinitionId = 0;
+    std::uint32_t itemInstanceDefinitionId = 0;
+    if (!valid(before) || !before.family4Active || before.family4RootSoid == 0 || accountSoid == 0
+        || accountSoid != before.family4RootSoid || characterSoid == 0 || subclassInstanceSoid == 0
+        || characterSoid == subclassInstanceSoid || before.family4ResidentCount == 0
+        || before.family4ResidentCount > before.family4Residents.size()
+        || before.family4Version == (std::numeric_limits<std::int32_t>::max)()
+        || !middleware::datagen::object_id(
+            kAccountFamilyType, middleware::datagen::kAccountSlot, accountDefinitionId)
+        || !middleware::datagen::object_id(
+            kAccountFamilyType, middleware::datagen::kCharacterSlot, characterDefinitionId)
+        || !middleware::datagen::object_id(
+            kAccountFamilyType, middleware::datagen::kItemInstanceSlot, itemInstanceDefinitionId)) {
+        return false;
+    }
+
+    std::size_t accountMatches = 0;
+    std::size_t characterMatches = 0;
+    std::size_t targetMatches = 0;
+    for (std::size_t index = 0; index < before.family4ResidentCount; ++index) {
+        const ResidentObject& object = before.family4Residents[index];
+        accountMatches += static_cast<std::size_t>(object.objectSoid == accountSoid
+                                                   && object.definitionId == accountDefinitionId);
+        characterMatches += static_cast<std::size_t>(
+            object.objectSoid == characterSoid && object.definitionId == characterDefinitionId);
+        targetMatches +=
+            static_cast<std::size_t>(object.objectSoid == subclassInstanceSoid
+                                     && object.definitionId == itemInstanceDefinitionId);
+    }
+    if (accountMatches != 1 || characterMatches != 1 || targetMatches != 1) {
+        return false;
+    }
+
+    selection.after = before;
+    ++selection.after.family4Version;
+    selection.itemInstanceDefinitionId = itemInstanceDefinitionId;
+    selection.accountSoid = accountSoid;
+    selection.characterSoid = characterSoid;
+    selection.subclassInstanceSoid = subclassInstanceSoid;
+    const bool staged = valid(selection.after);
+    std::array<char, core::log::kLineCapacity> line{};
+    const int count = std::snprintf(
+        line.data(),
+        line.size(),
+        "ev=subclass_select stage=queuez_version result=%s root=0x%llX before=%d after=%d "
+        "residents=%u character=0x%llX instance=0x%llX item_definition=%u",
+        staged ? "ok" : "fail",
+        static_cast<unsigned long long>(before.family4RootSoid),
+        before.family4Version,
+        selection.after.family4Version,
+        static_cast<unsigned>(before.family4ResidentCount),
+        static_cast<unsigned long long>(characterSoid),
+        static_cast<unsigned long long>(subclassInstanceSoid),
+        itemInstanceDefinitionId);
+    if (count > 0) {
+        core::log::write(core::log::Channel::server,
+                         staged ? core::log::Level::debug : core::log::Level::warn,
+                         {line.data(), static_cast<std::size_t>(count)});
+    }
+    return staged;
+}
+
 /** Stages the character upsert and appended resident required by one new item instance. */
 bool stage_item_acquisition(const SessionState& before,
                             std::uint64_t accountSoid,

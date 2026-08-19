@@ -37,6 +37,7 @@ namespace {
            && state::build_data::inventory_bucket_descriptors_ready()
            && state::build_data::socket_entry_lists_ready()
            && state::build_data::ability_buckets_ready()
+           && state::build_data::socket_entry_buckets_ready()
            && state::build_data::progression_definitions_ready()
            && state::build_data::scenario_layouts_ready() && state::build_data::spawn_sets_ready()
            && state::build_data::hash_names_ready()
@@ -53,6 +54,7 @@ namespace {
            && state::build_data::inventory_bucket_descriptors_ready()
            && state::build_data::socket_entry_lists_ready()
            && state::build_data::ability_buckets_ready()
+           && state::build_data::socket_entry_buckets_ready()
            && state::build_data::progression_definitions_ready()
            && state::build_data::investment_constants_ready();
 }

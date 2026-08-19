@@ -181,6 +181,7 @@ void report_upgrade(bool stored) noexcept {
  * @return The same text with any BOM removed.
  */
 [[nodiscard]] std::string_view without_byte_order_mark(std::string_view document) noexcept {
+    // UTF-8 byte order mark. An editor writes it and the parser must not see it.
     constexpr std::string_view kMark = "\xEF\xBB\xBF";
     return document.starts_with(kMark) ? document.substr(kMark.size()) : document;
 }

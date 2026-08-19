@@ -19,12 +19,8 @@ inline constexpr std::uint32_t kAccountFamilyType = 4;
 inline constexpr std::int32_t kInitialFamilyVersion = 0;
 /**
  * Family four holds account, character, one id per character-owned item, and one id per
- *
- * resident-backed mod or shader stack. Profile currency rows deliberately carry no instance
- *
- * SOID; the fixed addition covers all 50 native rows in each supported action-source bucket.
- * It
- * matches the snapshot descriptor size, so a snapshot that builds always stages.
+ * resident-backed mod or shader stack. Profile currency rows carry no instance SOID; the fixed
+ * addition covers all 50 native rows in each supported action-source bucket.
  */
 inline constexpr std::size_t kResidentCapacity =
     2 + state::kCharacterCapacity * middleware::datagen::family4::loadout::kItemCapacity
@@ -145,6 +141,15 @@ struct SocketPlug {
     bool updatesAccount{};
 };
 
+/** Validated subclass item-instance after-image for one ability socket-entry selection. */
+struct SubclassSelection {
+    SessionState after{};
+    std::uint32_t itemInstanceDefinitionId{};
+    std::uint64_t accountSoid{};
+    std::uint64_t characterSoid{};
+    std::uint64_t subclassInstanceSoid{};
+};
+
 /** Validated profile-stack acquisition after-image for an account upsert and optional resident. */
 struct ProfileItemAcquisition {
     SessionState after{};
@@ -189,6 +194,8 @@ struct StagedPublication {
     bool armsBannerRepush{};
     /** Root that copy must use. */
     std::uint64_t bannerRepushRoot{};
+    /** A subclass selection just staged and owes a delayed ability-icon refresh. */
+    bool armsAbilityRefresh{};
 };
 
 } // namespace sunrise::server::bap::encrypted::queuez

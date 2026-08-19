@@ -176,7 +176,9 @@ bool resolve_item(const authored_inventory::Item& authored,
     candidate.item.instance.socketEntryCount = socketList.entryCount;
     candidate.item.instance.socketEntryContentsResolved = true;
     resolve_socket_states(socketList,
-                          character,
+                          authored,
+                          character.characterClass,
+                          character.acquiredSubclassAbilityMask,
                           candidate.item.instance.socketEntryStates,
                           candidate.item.instance.socketSelectors);
     output = candidate;

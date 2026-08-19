@@ -16,69 +16,75 @@ constexpr std::uint8_t kWireIncarnationMask = kWireIncarnationCount - 1;
 /** The first process-local handle generation follows the cleared zero sentinel. */
 constexpr std::uint64_t kFirstHandleGeneration = 1;
 
+// No member initializers below: MSVC exhausts its heap on the 4 MB g_storage aggregate.
+
 /** One fixed allocator record. Exact owners live in context or peer ticket tables. */
 struct SlotRecord final {
-    std::uint64_t actorId{};
-    std::uint64_t allocationGeneration{};
-    std::uint8_t allocationSequence{};
-    std::uint8_t incarnation{};
-    std::uint8_t incarnationUseCount{};
-    LeaseOwner owner{LeaseOwner::free};
-    Lifecycle lifecycle{Lifecycle::absent};
-    QuarantineReason quarantineReason{QuarantineReason::none};
+    std::uint64_t actorId;
+    std::uint64_t allocationGeneration;
+    std::uint8_t allocationSequence;
+    std::uint8_t incarnation;
+    std::uint8_t incarnationUseCount;
+    LeaseOwner owner;
+    Lifecycle lifecycle;
+    QuarantineReason quarantineReason;
 };
 
 /** One exact allocation retained by one peer replica. */
 struct PeerAllocationReferenceRecord final {
-    Allocation allocation{};
-    bool occupied{};
+    Allocation allocation;
+    bool occupied;
 };
 
 /** One exact packet or replay reference retained by one peer replica. */
 struct ContributionTicketRecord final {
-    Allocation allocation{};
-    std::uint64_t generation{};
-    ContributionKind kind{ContributionKind::packet};
-    bool occupied{};
+    Allocation allocation;
+    std::uint64_t generation;
+    ContributionKind kind;
+    bool occupied;
 };
 
 /** One exact dependency or command reference retained by the activity. */
 struct HostReferenceTicketRecord final {
-    Allocation allocation{};
-    std::uint64_t generation{};
-    ReferenceKind kind{ReferenceKind::dependency};
-    bool occupied{};
+    Allocation allocation;
+    std::uint64_t generation;
+    ReferenceKind kind;
+    bool occupied;
 };
 
 /** One peer-owned view with bounded allocation references and tickets. */
 struct PeerReplicaRecord final {
-    std::array<PeerAllocationReferenceRecord, kPeerAllocationReferenceCapacity> references{};
-    std::array<ContributionTicketRecord, kContributionTicketCapacity> tickets{};
-    ViewKey view{};
-    std::uint64_t generation{};
-    bool occupied{};
+    std::array<PeerAllocationReferenceRecord, kPeerAllocationReferenceCapacity> references;
+    std::array<ContributionTicketRecord, kContributionTicketCapacity> tickets;
+    ViewKey view;
+    std::uint64_t generation;
+    bool occupied;
 };
 
 /** One activity identity, its allocator, and every peer-owned view. */
 struct ContextRecord final {
-    std::array<SlotRecord, kEntitySlotCount> slots{};
-    std::array<PeerReplicaRecord, kPeerReplicaCapacity> peers{};
-    std::array<HostReferenceTicketRecord, kHostReferenceTicketCapacity> hostTickets{};
-    ActivityReplicaContext context{};
-    std::uint64_t generation{};
-    std::uint64_t reuseEpoch{};
-    bool occupied{};
+    std::array<SlotRecord, kEntitySlotCount> slots;
+    std::array<PeerReplicaRecord, kPeerReplicaCapacity> peers;
+    std::array<HostReferenceTicketRecord, kHostReferenceTicketCapacity> hostTickets;
+    ActivityReplicaContext context;
+    std::uint64_t generation;
+    std::uint64_t reuseEpoch;
+    bool occupied;
 };
 
 /** State-owned fixed storage and its publication lock. */
 struct Storage final {
-    SRWLOCK lock{SRWLOCK_INIT};
-    std::array<ContextRecord, kReplicaContextCapacity> contexts{};
-    std::uint64_t nextHandleGeneration{kFirstHandleGeneration};
-    bool ready{};
+    SRWLOCK lock;
+    std::array<ContextRecord, kReplicaContextCapacity> contexts;
+    std::uint64_t nextHandleGeneration;
+    bool ready;
 };
 
-Storage g_storage;
+// Designated so a reordered member cannot silently shift these values.
+Storage g_storage{.lock = SRWLOCK_INIT,
+                  .contexts = {},
+                  .nextHandleGeneration = kFirstHandleGeneration,
+                  .ready = false};
 
 /** Clears all records but preserves the process-local handle sequence and Windows lock. */
 void clear_storage() noexcept {

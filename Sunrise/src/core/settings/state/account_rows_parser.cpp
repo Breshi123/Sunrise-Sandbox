@@ -1,5 +1,6 @@
 #include <limits>
 
+#include "../../../state/build_data/items/item_catalog.h"
 #include "../parser.h"
 
 namespace sunrise::core::settings::parser {
@@ -12,7 +13,37 @@ constexpr std::uint64_t kMaximumDestinationHash = (std::numeric_limits<std::uint
 
 } // namespace
 
-/** Parses the definition hashes and quantities credited by ordinary gear dismantles. */
+namespace {
+
+/** Sets the tier bit one rarity name stands for. */
+[[nodiscard]] bool dismantle_tier_bit(std::string_view name, std::uint8_t& mask) noexcept {
+    using Tier = state::build_data::items::Tier;
+    Tier tier = Tier::none;
+    if (name == "common") {
+        tier = Tier::common;
+    } else if (name == "uncommon") {
+        tier = Tier::uncommon;
+    } else if (name == "rare") {
+        tier = Tier::rare;
+    } else if (name == "legendary") {
+        tier = Tier::legendary;
+    } else if (name == "exotic") {
+        tier = Tier::exotic;
+    } else {
+        return false;
+    }
+    const std::uint8_t bit = static_cast<std::uint8_t>(1U << static_cast<unsigned>(tier));
+    if ((mask & bit) != 0) {
+        return false;
+    }
+    mask |= bit;
+    return true;
+}
+
+} // namespace
+
+/** Parses the materials credited by ordinary gear dismantles, with optional rarity/class filters.
+ */
 bool Parser::dismantle_rewards(state::AccountState& output) noexcept {
     output.dismantleRewards = {};
     output.dismantleRewardCount = 0;
@@ -49,6 +80,45 @@ bool Parser::dismantle_rewards(state::AccountState& output) noexcept {
                 }
                 reward.quantity = static_cast<std::int32_t>(value);
                 hasQuantity = true;
+            } else if (key == "rarity") {
+                // One name or an array of names; each sets its tier bit.
+                if (reward.tierMask != 0) {
+                    return false;
+                }
+                const bool list = consume('[');
+                for (;;) {
+                    std::string_view name;
+                    if (!string(name) || !dismantle_tier_bit(name, reward.tierMask)) {
+                        return false;
+                    }
+                    if (!list || consume(']')) {
+                        break;
+                    }
+                    if (!consume(',')) {
+                        return false;
+                    }
+                }
+            } else if (key == "class") {
+                std::string_view name;
+                if (reward.classMask != 0 || !string(name)) {
+                    return false;
+                }
+                if (name == "weapon") {
+                    reward.classMask = static_cast<std::uint8_t>(state::DismantleGearClass::weapon);
+                } else if (name == "armor") {
+                    reward.classMask = static_cast<std::uint8_t>(state::DismantleGearClass::armor);
+                } else {
+                    return false;
+                }
+            } else if (key == "masterworked") {
+                bool masterworked = false;
+                if (reward.masterwork != state::DismantleMasterworkFilter::any
+                    || !boolean(masterworked)) {
+                    return false;
+                }
+                reward.masterwork = masterworked
+                                        ? state::DismantleMasterworkFilter::masterworked
+                                        : state::DismantleMasterworkFilter::notMasterworked;
             } else if (!skip_value(0)) {
                 return false;
             }
@@ -60,7 +130,7 @@ bool Parser::dismantle_rewards(state::AccountState& output) noexcept {
             }
         }
         for (std::size_t index = 0; index < output.dismantleRewardCount; ++index) {
-            if (output.dismantleRewards[index].definitionHash == reward.definitionHash) {
+            if (state::same_dismantle_policy_key(output.dismantleRewards[index], reward)) {
                 return false;
             }
         }
@@ -163,16 +233,6 @@ bool Parser::characters(state::AccountState& output) noexcept {
     }
 }
 
-/** Reads one selectable ability's socket entry. */
-bool Parser::ability_entry(std::uint8_t& output) noexcept {
-    std::uint64_t value = 0;
-    if (!unsigned_integer(value) || value > state::kMaximumMovementAbilityEntry) {
-        return false;
-    }
-    output = static_cast<std::uint8_t>(value);
-    return true;
-}
-
 /** Parses one authored character identity. */
 bool Parser::character(state::CharacterState& output) noexcept {
     output = {};
@@ -244,24 +304,12 @@ bool Parser::character(state::CharacterState& output) noexcept {
             if (!boolean(output.contentBypass)) {
                 return false;
             }
-        } else if (key == "movement_ability") {
-            if (!ability_entry(output.movementAbilityEntry)) {
-                return false;
-            }
-        } else if (key == "grenade_ability") {
-            if (!ability_entry(output.grenadeAbilityEntry)) {
-                return false;
-            }
-        } else if (key == "super_ability") {
-            if (!ability_entry(output.superAbilityEntry)) {
-                return false;
-            }
-        } else if (key == "melee_ability") {
-            if (!ability_entry(output.meleeAbilityEntry)) {
-                return false;
-            }
-        } else if (key == "class_ability") {
-            if (!ability_entry(output.classAbilityEntry)) {
+        } else if (key == "movement_ability" || key == "grenade_ability" || key == "super_ability"
+                   || key == "melee_ability" || key == "class_ability") {
+            // Deliberately ignored on load. The subclass screen's first paint each login shows
+            // the ability-entry struct defaults below, so restoring a persisted pick would leave
+            // that paint disagreeing with what is equipped. Still written out, never read back.
+            if (!skip_value(0)) {
                 return false;
             }
         } else if (key == "equipment") {

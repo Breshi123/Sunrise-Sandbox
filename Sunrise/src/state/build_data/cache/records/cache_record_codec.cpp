@@ -59,24 +59,27 @@ bool encode(const items::Definition& value, ItemRecord& record) noexcept {
         value.definitionHash,
         value.definitionIndex,
         value.bucketId,
-        kReservedFieldValue,
+        value.tier,
         value.insertionMaterialRequirementSetIndex,
         value.enabledMaterialRequirementSetIndex,
+        value.plugCategoryHash,
+        value.rollSetIndex,
+        value.linkedPlugIndex,
     };
     return true;
 }
 
-/** Decodes one installed-build item mapping after checking its padding. */
+/** Decodes one installed-build item mapping. */
 bool decode(const ItemRecord& record, items::Definition& value) noexcept {
-    value = {};
-    if (record.reserved != kReservedFieldValue) {
-        return false;
-    }
     value = {record.definitionHash,
              record.definitionIndex,
              record.bucketId,
              record.insertionMaterialRequirementSetIndex,
-             record.enabledMaterialRequirementSetIndex};
+             record.enabledMaterialRequirementSetIndex,
+             record.tier,
+             record.plugCategoryHash,
+             record.rollSetIndex,
+             record.linkedPlugIndex};
     return true;
 }
 

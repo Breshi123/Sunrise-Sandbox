@@ -36,6 +36,7 @@ private:
 };
 
 DomainMarker g_abilityBuckets;
+DomainMarker g_socketEntryBuckets;
 DomainMarker g_details;
 DomainMarker g_named;
 DomainMarker g_spawnCatalog;
@@ -58,6 +59,22 @@ bool ready() noexcept {
 }
 
 } // namespace ability_buckets
+
+namespace socket_entry_buckets {
+
+void clear() noexcept {
+    g_socketEntryBuckets.clear();
+}
+
+void publish() noexcept {
+    g_socketEntryBuckets.publish();
+}
+
+bool ready() noexcept {
+    return g_socketEntryBuckets.ready();
+}
+
+} // namespace socket_entry_buckets
 
 namespace details {
 

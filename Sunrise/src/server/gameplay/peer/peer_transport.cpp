@@ -23,6 +23,7 @@ namespace sunrise::server::gameplay::peer {
 
 namespace {
 
+namespace gp = state::gameplay;
 namespace wire = middleware::gameplay::peer;
 namespace bits = middleware::encoding::bits;
 
@@ -33,7 +34,7 @@ namespace bits = middleware::encoding::bits;
  * @param payload Payload bytes.
  * @return True when one of the two carried it.
  */
-[[nodiscard]] bool send_transport(const state::gameplay::Endpoint& to,
+[[nodiscard]] bool send_transport(const gp::Endpoint& to,
                                   std::span<const std::byte> payload) noexcept {
     return dtls::send_payload(to, payload) || association::send_payload(to, payload);
 }
@@ -49,7 +50,7 @@ constexpr std::uint32_t kByteMask = 0xFF;
 /** Delay sentinel used until a round trip has been measured. */
 constexpr std::uint16_t kDelaySentinel = 1023;
 /** Packet sequences are published as ten bits. */
-constexpr std::uint16_t kPacketSequenceModulus = state::gameplay::kPacketSequenceModulus;
+constexpr std::uint16_t kPacketSequenceModulus = gp::kPacketSequenceModulus;
 /** Sequence the first packet to a peer carries, because the head advances before it is written. */
 constexpr std::uint16_t kFirstPacketSequence = 1;
 /** Smallest head-minus-cursor the peer accepts. This host keeps at most one packet in flight. */
@@ -63,22 +64,19 @@ constexpr std::size_t kMessageReportCapacity = 8;
 constexpr std::uint64_t kResendInterval = 250;
 
 SRWLOCK g_lock{SRWLOCK_INIT};
-std::array<state::gameplay::PeerLink, state::gameplay::kAssociationCapacity> g_peers;
+std::array<gp::PeerLink, gp::kAssociationCapacity> g_peers;
 /** Channel ids this host hands out. The peer refuses one that does not increase. */
 std::uint32_t g_channelId{0};
 
 /** @return True when both endpoints name the same address and port. */
-[[nodiscard]] bool same_endpoint(const state::gameplay::Endpoint& left,
-                                 const state::gameplay::Endpoint& right) noexcept {
+[[nodiscard]] bool same_endpoint(const gp::Endpoint& left, const gp::Endpoint& right) noexcept {
     return left.address == right.address && left.port == right.port;
 }
 
 /** @return Peer for one endpoint, or null. Callers already hold the lock. */
-[[nodiscard]] state::gameplay::PeerLink*
-find_locked(const state::gameplay::Endpoint& from) noexcept {
-    for (state::gameplay::PeerLink& peer : g_peers) {
-        if (peer.stage != state::gameplay::PeerStage::absent
-            && same_endpoint(peer.endpoint, from)) {
+[[nodiscard]] gp::PeerLink* find_locked(const gp::Endpoint& from) noexcept {
+    for (gp::PeerLink& peer : g_peers) {
+        if (peer.stage != gp::PeerStage::absent && same_endpoint(peer.endpoint, from)) {
             return &peer;
         }
     }
@@ -86,8 +84,7 @@ find_locked(const state::gameplay::Endpoint& from) noexcept {
 }
 
 /** @return True when the link carries one group session. Callers hold the lock. */
-[[nodiscard]] bool carries_locked(const state::gameplay::PeerLink& peer,
-                                  std::uint64_t sessionId) noexcept {
+[[nodiscard]] bool carries_locked(const gp::PeerLink& peer, std::uint64_t sessionId) noexcept {
     for (const std::uint64_t held : peer.sessions) {
         if (held == sessionId) {
             return true;
@@ -97,12 +94,12 @@ find_locked(const state::gameplay::Endpoint& from) noexcept {
 }
 
 /** @return Link carrying one group session, or null. Callers hold the lock. */
-[[nodiscard]] state::gameplay::PeerLink* find_session_locked(std::uint64_t sessionId) noexcept {
+[[nodiscard]] gp::PeerLink* find_session_locked(std::uint64_t sessionId) noexcept {
     if (sessionId == 0) {
         return nullptr;
     }
-    for (state::gameplay::PeerLink& peer : g_peers) {
-        if (peer.stage != state::gameplay::PeerStage::absent && carries_locked(peer, sessionId)) {
+    for (gp::PeerLink& peer : g_peers) {
+        if (peer.stage != gp::PeerStage::absent && carries_locked(peer, sessionId)) {
             return &peer;
         }
     }
@@ -115,7 +112,7 @@ find_locked(const state::gameplay::Endpoint& from) noexcept {
  * @param peer Link the message arrived on.
  * @return The session id, or zero when the link carries none or several.
  */
-[[nodiscard]] std::uint64_t sole_session_locked(const state::gameplay::PeerLink& peer) noexcept {
+[[nodiscard]] std::uint64_t sole_session_locked(const gp::PeerLink& peer) noexcept {
     std::uint64_t only = 0;
     for (const std::uint64_t held : peer.sessions) {
         if (held == 0) {
@@ -134,18 +131,18 @@ find_locked(const state::gameplay::Endpoint& from) noexcept {
  * @param from Peer endpoint.
  * @return The session id, or zero when it cannot be resolved.
  */
-[[nodiscard]] std::uint64_t session_for_endpoint(const state::gameplay::Endpoint& from) noexcept {
+[[nodiscard]] std::uint64_t session_for_endpoint(const gp::Endpoint& from) noexcept {
     AcquireSRWLockShared(&g_lock);
-    const state::gameplay::PeerLink* const peer = find_locked(from);
+    const gp::PeerLink* const peer = find_locked(from);
     const std::uint64_t only = peer == nullptr ? 0 : sole_session_locked(*peer);
     ReleaseSRWLockShared(&g_lock);
     return only;
 }
 
 /** @return A free peer slot, or null. Callers already hold the lock. */
-[[nodiscard]] state::gameplay::PeerLink* allocate_locked() noexcept {
-    for (state::gameplay::PeerLink& peer : g_peers) {
-        if (peer.stage == state::gameplay::PeerStage::absent) {
+[[nodiscard]] gp::PeerLink* allocate_locked() noexcept {
+    for (gp::PeerLink& peer : g_peers) {
+        if (peer.stage == gp::PeerStage::absent) {
             return &peer;
         }
     }
@@ -154,7 +151,7 @@ find_locked(const state::gameplay::Endpoint& from) noexcept {
 
 /** Fills the address blob that names this host on the direct path. */
 void local_address(std::array<std::byte, wire::kAddressBlobSize>& output) noexcept {
-    const state::gameplay::Endpoint advertised = endpoint::advertised();
+    const gp::Endpoint advertised = endpoint::advertised();
     middleware::gameplay::descriptor::write_net_addr(advertised.address, advertised.port, output);
 }
 
@@ -178,7 +175,7 @@ void local_address(std::array<std::byte, wire::kAddressBlobSize>& output) noexce
  * @param remoteChannelId Channel id the request carried. The link must still hold it.
  * @param body Both channel ids.
  */
-void answer_establish(const state::gameplay::Endpoint& to,
+void answer_establish(const gp::Endpoint& to,
                       std::uint32_t remoteChannelId,
                       const wire::ConnectEstablish& body) noexcept {
     std::array<std::byte, kReplyCapacity> buffer{};
@@ -190,7 +187,7 @@ void answer_establish(const state::gameplay::Endpoint& to,
     }
     AcquireSRWLockExclusive(&g_lock);
     // The endpoint's link. A channel the peer has retired has no link of its own to answer on.
-    state::gameplay::PeerLink* peer = find_locked(to);
+    gp::PeerLink* peer = find_locked(to);
     const bool queued =
         peer != nullptr && peer->remoteConnectionSequence == remoteChannelId
         && wire::enqueue_message(peer->outbound,
@@ -216,7 +213,7 @@ void answer_establish(const state::gameplay::Endpoint& to,
  * @param request Decoded request body.
  * @param now Monotonic tick count.
  */
-void answer_connect(const state::gameplay::Endpoint& from,
+void answer_connect(const gp::Endpoint& from,
                     const wire::ConnectRequest& request,
                     std::uint64_t now) noexcept {
     wire::ConnectResponse response{};
@@ -228,7 +225,7 @@ void answer_connect(const state::gameplay::Endpoint& from,
     AcquireSRWLockExclusive(&g_lock);
     // Keyed by endpoint. The client holds one channel per host peer, so a second link would stamp
     // packets with a channel id the client has already retired.
-    state::gameplay::PeerLink* peer = find_locked(from);
+    gp::PeerLink* peer = find_locked(from);
     // A repeat of the same request is a retransmission and leaves the link alone. A different
     // channel or sequence is a new incarnation the peer built without announcing the teardown.
     const bool rebuilt = peer != nullptr
@@ -237,15 +234,13 @@ void answer_connect(const state::gameplay::Endpoint& from,
     if (peer == nullptr) {
         peer = allocate_locked();
     }
-    const bool fresh =
-        peer != nullptr && (peer->stage == state::gameplay::PeerStage::absent || rebuilt);
+    const bool fresh = peer != nullptr && (peer->stage == gp::PeerStage::absent || rebuilt);
     if (fresh) {
         // The sessions outlive the channel. The client rebuilds one channel under every group
         // session it holds and rejoins none of them, so dropping them here strands each one.
-        const std::array<std::uint64_t, state::gameplay::kSessionsPerLink> held =
-            peer->stage == state::gameplay::PeerStage::absent
-                ? std::array<std::uint64_t, state::gameplay::kSessionsPerLink>{}
-                : peer->sessions;
+        const std::array<std::uint64_t, gp::kSessionsPerLink> held =
+            peer->stage == gp::PeerStage::absent ? std::array<std::uint64_t, gp::kSessionsPerLink>{}
+                                                 : peer->sessions;
         *peer = {};
         peer->sessions = held;
         peer->endpoint = from;
@@ -267,7 +262,7 @@ void answer_connect(const state::gameplay::Endpoint& from,
         peer->remoteAddressPresent = true;
         // A retransmission must not move an established link back a stage.
         if (fresh) {
-            peer->stage = state::gameplay::PeerStage::connecting;
+            peer->stage = gp::PeerStage::connecting;
         }
         peer->lastTick = now;
         response.channelId = peer->localConnectionSequence;
@@ -311,15 +306,14 @@ void answer_connect(const state::gameplay::Endpoint& from,
  * @param sessionId Session the join request named.
  * @return True when a link now carries that session.
  */
-[[nodiscard]] bool bind_session(const state::gameplay::Endpoint& from,
-                                std::uint64_t sessionId) noexcept {
+[[nodiscard]] bool bind_session(const gp::Endpoint& from, std::uint64_t sessionId) noexcept {
     if (sessionId == 0) {
         return false;
     }
     AcquireSRWLockExclusive(&g_lock);
     // The endpoint's link, whatever it already carries. A join for a second region arrives on the
     // same channel as the first, and out of band when that channel is still being rebuilt.
-    state::gameplay::PeerLink* const peer = find_locked(from);
+    gp::PeerLink* const peer = find_locked(from);
     const char* result = "nolink";
     bool bound = false;
     std::uint32_t channel = 0;
@@ -356,7 +350,7 @@ void answer_connect(const state::gameplay::Endpoint& from,
  * @param from Requesting endpoint.
  * @param request Decoded admission prefix.
  */
-void answer_join(const state::gameplay::Endpoint& from, const wire::JoinRequest& request) noexcept {
+void answer_join(const gp::Endpoint& from, const wire::JoinRequest& request) noexcept {
     const std::uint64_t hostSession = endpoint::identity().onlineSessionId;
     wire::RefuseReason reason = wire::RefuseReason::notFound;
     if (wire::admit(request, hostSession, reason)) {
@@ -425,8 +419,7 @@ void answer_join(const state::gameplay::Endpoint& from, const wire::JoinRequest&
  * @param reader Reader positioned at the ping body.
  * @return True when the body read, whether or not the reply left the endpoint.
  */
-[[nodiscard]] bool answer_ping(const state::gameplay::Endpoint& from,
-                               bits::Reader& reader) noexcept {
+[[nodiscard]] bool answer_ping(const gp::Endpoint& from, bits::Reader& reader) noexcept {
     wire::PingBody ping{};
     if (!wire::read_ping(reader, ping)) {
         return false;
@@ -452,7 +445,7 @@ void answer_join(const state::gameplay::Endpoint& from, const wire::JoinRequest&
  * @param payload Whole decrypted payload.
  * @param now Monotonic tick count.
  */
-void consume_container(const state::gameplay::Endpoint& from,
+void consume_container(const gp::Endpoint& from,
                        std::span<const std::byte> payload,
                        std::uint64_t now) noexcept {
     bits::Reader reader(payload);
@@ -541,7 +534,7 @@ void consume_container(const state::gameplay::Endpoint& from,
  * @param peer Peer receiving the packet.
  * @param sequence Sequence the packet published.
  */
-void record_sequence(state::gameplay::PeerLink& peer, std::uint16_t sequence) noexcept {
+void record_sequence(gp::PeerLink& peer, std::uint16_t sequence) noexcept {
     if (!peer.ringInitialized) {
         peer.ringInitialized = true;
         peer.receiveHead = sequence;
@@ -550,13 +543,12 @@ void record_sequence(state::gameplay::PeerLink& peer, std::uint16_t sequence) no
     }
     // Add the modulus before subtracting. A bare difference is signed and goes negative on a wrap.
     const std::uint16_t advance = static_cast<std::uint16_t>(
-        (sequence + state::gameplay::kPacketSequenceModulus - peer.receiveHead)
-        % state::gameplay::kPacketSequenceModulus);
-    if (advance == 0 || advance >= state::gameplay::kPacketSequenceHalf) {
+        (sequence + gp::kPacketSequenceModulus - peer.receiveHead) % gp::kPacketSequenceModulus);
+    if (advance == 0 || advance >= gp::kPacketSequenceHalf) {
         // A repeat or an older packet leaves the published history alone.
         return;
     }
-    std::array<bool, state::gameplay::kAckHistory> shifted{};
+    std::array<bool, gp::kAckHistory> shifted{};
     for (std::size_t index = 0; index < shifted.size(); ++index) {
         // Entry `index` is the packet `index + 1` before the new head, so the old head lands at
         // `advance - 1`. Anything newer than the old head and older than this packet was skipped.
@@ -579,12 +571,11 @@ void record_sequence(state::gameplay::PeerLink& peer, std::uint16_t sequence) no
  * @param peer Peer that sent it, held under the lock.
  * @param message Reassembled message and its inner header.
  */
-void apply_message(state::gameplay::PeerLink& peer,
-                   const wire::AssembledMessage& message) noexcept {
+void apply_message(gp::PeerLink& peer, const wire::AssembledMessage& message) noexcept {
     if (message.id == static_cast<std::uint8_t>(wire::ConnectId::establish)
-        && peer.stage == state::gameplay::PeerStage::connecting) {
+        && peer.stage == gp::PeerStage::connecting) {
         // The reliable establish is what moves a connected peer past the out-of-band pair.
-        peer.stage = state::gameplay::PeerStage::connected;
+        peer.stage = gp::PeerStage::connected;
     }
 }
 
@@ -594,14 +585,14 @@ void apply_message(state::gameplay::PeerLink& peer,
  * @param ack Acknowledgement state the packet published.
  * @return True when this acknowledgement emptied the queue.
  */
-bool apply_acknowledgement(state::gameplay::PeerLink& peer, const wire::AckState& ack) noexcept {
+bool apply_acknowledgement(gp::PeerLink& peer, const wire::AckState& ack) noexcept {
     if (!peer.outbound.awaitingAcknowledgement
         || !wire::acknowledgement_covers(ack, peer.outbound.sentInPacket)) {
         return false;
     }
     // The peer has the packet, so every fragment in it is delivered. The next sequence is kept
     // because message sequences continue across messages.
-    for (state::gameplay::OutboundFragment& fragment : peer.outbound.fragments) {
+    for (gp::OutboundFragment& fragment : peer.outbound.fragments) {
         fragment = {};
     }
     peer.outbound.count = 0;
@@ -615,7 +606,7 @@ bool apply_acknowledgement(state::gameplay::PeerLink& peer, const wire::AckState
  * @param payload Whole decrypted payload.
  * @param now Monotonic tick count.
  */
-void consume_established(const state::gameplay::Endpoint& from,
+void consume_established(const gp::Endpoint& from,
                          std::span<const std::byte> payload,
                          std::uint64_t now) noexcept {
     wire::EstablishedPacket packet{};
@@ -638,7 +629,7 @@ void consume_established(const state::gameplay::Endpoint& from,
     bool guardAccepted = false;
     std::uint8_t expectedGuard = 0;
     AcquireSRWLockExclusive(&g_lock);
-    state::gameplay::PeerLink* peer = find_locked(from);
+    gp::PeerLink* peer = find_locked(from);
     std::array<wire::AssembledMessage, kMessageReportCapacity> bodies{};
     if (peer != nullptr) {
         peerFound = true;
@@ -700,7 +691,7 @@ void consume_established(const state::gameplay::Endpoint& from,
             continue;
         }
         // Group handling runs outside the lock because answering takes it again.
-        bits::Reader reader({body.bytes.data(), state::gameplay::kReassemblyCapacity});
+        bits::Reader reader({body.bytes.data(), gp::kReassemblyCapacity});
         if (reader.skip(body.bodyBitOffset)
             && !group::consume(from, sessionId, body.id, reader, now)) {
             report(core::log::Level::debug,
@@ -733,7 +724,7 @@ void consume_established(const state::gameplay::Endpoint& from,
  * @param peer Peer state copied under the lock before the send.
  * @return True when the packet left the endpoint.
  */
-[[nodiscard]] bool send_acknowledgement(const state::gameplay::PeerLink& peer) noexcept {
+[[nodiscard]] bool send_acknowledgement(const gp::PeerLink& peer) noexcept {
     wire::AckState ack{};
     ack.outboundHead = peer.outboundHead;
     ack.outboundHeadPresent = peer.outboundHeadPresent;
@@ -762,7 +753,7 @@ void consume_established(const state::gameplay::Endpoint& from,
 } // namespace
 
 /** Consumes one decrypted transport payload. */
-void deliver(const state::gameplay::Endpoint& from,
+void deliver(const gp::Endpoint& from,
              std::span<const std::byte> payload,
              std::uint64_t now) noexcept {
     if (payload.empty()) {
@@ -776,7 +767,7 @@ void deliver(const state::gameplay::Endpoint& from,
 }
 
 /** Sends one already-encoded out-of-band body in its own container. */
-bool send_container(const state::gameplay::Endpoint& to,
+bool send_container(const gp::Endpoint& to,
                     std::uint8_t id,
                     std::uint32_t declaredSize,
                     std::span<const std::byte> body,
@@ -811,7 +802,7 @@ bool enqueue_reliable(std::uint64_t sessionId,
                       std::span<const std::byte> body,
                       std::size_t bodyBits) noexcept {
     AcquireSRWLockExclusive(&g_lock);
-    state::gameplay::PeerLink* peer = find_session_locked(sessionId);
+    gp::PeerLink* peer = find_session_locked(sessionId);
     const bool queued =
         peer != nullptr && wire::enqueue_message(peer->outbound, id, declaredSize, body, bodyBits);
     if (queued) {
@@ -826,9 +817,9 @@ bool enqueue_reliable(std::uint64_t sessionId,
 
 /** Reports the NetAddr one peer sent in its own connect request. */
 bool remote_address(std::uint64_t sessionId,
-                    std::array<std::byte, state::gameplay::kNetAddrBlobSize>& output) noexcept {
+                    std::array<std::byte, gp::kNetAddrBlobSize>& output) noexcept {
     AcquireSRWLockShared(&g_lock);
-    const state::gameplay::PeerLink* peer = find_session_locked(sessionId);
+    const gp::PeerLink* peer = find_session_locked(sessionId);
     const bool present = peer != nullptr && peer->remoteAddressPresent;
     if (present) {
         output = peer->remoteAddress;
@@ -838,12 +829,11 @@ bool remote_address(std::uint64_t sessionId,
 }
 
 /** Binds one peer's view signature. */
-void bind_view(const state::gameplay::Endpoint& from,
-               const state::gameplay::ViewSignature& signature) noexcept {
+void bind_view(const gp::Endpoint& from, const gp::ViewSignature& signature) noexcept {
     AcquireSRWLockExclusive(&g_lock);
     // Keyed by endpoint, not by session: the view body carries no session id, and a link holding
     // both a current and a target region resolves no sole session to key it by.
-    state::gameplay::PeerLink* peer = find_locked(from);
+    gp::PeerLink* peer = find_locked(from);
     if (peer != nullptr) {
         peer->view = signature;
     }
@@ -853,20 +843,20 @@ void bind_view(const state::gameplay::Endpoint& from,
 /** Reports whether the link carrying one session holds a bound view and is established. */
 bool view_bound(std::uint64_t sessionId) noexcept {
     AcquireSRWLockShared(&g_lock);
-    const state::gameplay::PeerLink* peer = find_session_locked(sessionId);
+    const gp::PeerLink* peer = find_session_locked(sessionId);
     // A bound body alone is not readiness. The link also has to be past its connect exchange, or
     // the view belongs to a channel the peer has already rebuilt.
     const bool ready =
-        peer != nullptr && peer->view.bound && peer->stage == state::gameplay::PeerStage::connected;
+        peer != nullptr && peer->view.bound && peer->stage == gp::PeerStage::connected;
     ReleaseSRWLockShared(&g_lock);
     return ready;
 }
 
 /** Reports how far the link carrying one group session has got. */
-bool link_stage(std::uint64_t sessionId, state::gameplay::PeerStage& stage) noexcept {
-    stage = state::gameplay::PeerStage::absent;
+bool link_stage(std::uint64_t sessionId, gp::PeerStage& stage) noexcept {
+    stage = gp::PeerStage::absent;
     AcquireSRWLockShared(&g_lock);
-    const state::gameplay::PeerLink* peer = find_session_locked(sessionId);
+    const gp::PeerLink* peer = find_session_locked(sessionId);
     const bool present = peer != nullptr;
     if (present) {
         stage = peer->stage;
@@ -879,7 +869,7 @@ bool link_stage(std::uint64_t sessionId, state::gameplay::PeerStage& stage) noex
 bool link_identity(std::uint64_t sessionId, LinkIdentity& output) noexcept {
     output = {};
     AcquireSRWLockShared(&g_lock);
-    const state::gameplay::PeerLink* peer = find_session_locked(sessionId);
+    const gp::PeerLink* peer = find_session_locked(sessionId);
     const bool present = peer != nullptr;
     if (present) {
         output.localConnectionSequence = peer->localConnectionSequence;
@@ -891,15 +881,15 @@ bool link_identity(std::uint64_t sessionId, LinkIdentity& output) noexcept {
 
 /** Sends any owed acknowledgement. */
 void service(std::uint64_t now) noexcept {
-    std::array<state::gameplay::PeerLink, state::gameplay::kAssociationCapacity> owed{};
+    std::array<gp::PeerLink, gp::kAssociationCapacity> owed{};
     std::size_t count = 0;
     AcquireSRWLockExclusive(&g_lock);
-    for (state::gameplay::PeerLink& peer : g_peers) {
+    for (gp::PeerLink& peer : g_peers) {
         // An unacknowledged send queue keeps the packet going out until the peer confirms it.
         // Every packet burns one sequence, so the resend is paced.
         const bool resendDue = peer.outbound.count != 0 && now - peer.lastSend >= kResendInterval;
         const bool due = peer.acknowledgementOwed || resendDue;
-        if (peer.stage == state::gameplay::PeerStage::absent || !due) {
+        if (peer.stage == gp::PeerStage::absent || !due) {
             continue;
         }
         peer.acknowledgementOwed = false;
@@ -930,7 +920,7 @@ void service(std::uint64_t now) noexcept {
 /** Drops one group session, leaving the link and its other sessions alone. */
 void drop(std::uint64_t sessionId) noexcept {
     AcquireSRWLockExclusive(&g_lock);
-    state::gameplay::PeerLink* const peer = find_session_locked(sessionId);
+    gp::PeerLink* const peer = find_session_locked(sessionId);
     if (peer != nullptr) {
         // The channel outlives the session. A leave names one region, and the client keeps playing
         // the other over the same channel.
@@ -944,11 +934,10 @@ void drop(std::uint64_t sessionId) noexcept {
 }
 
 /** Drops every link at one endpoint, which is what a connect-closed names. */
-void drop_endpoint(const state::gameplay::Endpoint& endpoint) noexcept {
+void drop_endpoint(const gp::Endpoint& endpoint) noexcept {
     AcquireSRWLockExclusive(&g_lock);
-    for (state::gameplay::PeerLink& peer : g_peers) {
-        if (peer.stage != state::gameplay::PeerStage::absent
-            && same_endpoint(peer.endpoint, endpoint)) {
+    for (gp::PeerLink& peer : g_peers) {
+        if (peer.stage != gp::PeerStage::absent && same_endpoint(peer.endpoint, endpoint)) {
             peer = {};
         }
     }
@@ -958,7 +947,7 @@ void drop_endpoint(const state::gameplay::Endpoint& endpoint) noexcept {
 /** Drops every peer. */
 void reset() noexcept {
     AcquireSRWLockExclusive(&g_lock);
-    for (state::gameplay::PeerLink& peer : g_peers) {
+    for (gp::PeerLink& peer : g_peers) {
         peer = {};
     }
     ReleaseSRWLockExclusive(&g_lock);

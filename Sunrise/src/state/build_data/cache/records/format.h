@@ -29,7 +29,7 @@ inline constexpr std::array<char, 8> kCacheMagic{'S', 'U', 'N', 'R', 'I', 'S', '
  * Bump it when a stored shape changes, and when the extraction filling it changes what it writes.
  * A cached row survives a code change, so a corrected walk keeps publishing the old rows.
  */
-inline constexpr std::uint32_t kCacheFormatVersion = 43;
+inline constexpr std::uint32_t kCacheFormatVersion = 44;
 /** Signed -1 on disk means there is no equipment slot. */
 inline constexpr std::int8_t kAbsentEquipmentSlot = -1;
 /** The standard 64-bit FNV-1a offset basis starts the payload checksum. */
@@ -107,12 +107,15 @@ struct ItemRecord {
     std::uint32_t definitionHash{};
     std::uint16_t definitionIndex{};
     std::uint8_t bucketId{items::kUnresolvedBucketId};
-    /** Must be zero, so the packed item row matches across compilers. */
-    std::uint8_t reserved{};
+    /** Native rarity ladder byte; 0 outside the ladder. */
+    std::uint8_t tier{};
     std::uint16_t insertionMaterialRequirementSetIndex{
         items::kUnavailableMaterialRequirementSetIndex};
     std::uint16_t enabledMaterialRequirementSetIndex{
         items::kUnavailableMaterialRequirementSetIndex};
+    std::uint32_t plugCategoryHash{};
+    std::uint16_t rollSetIndex{};
+    std::uint16_t linkedPlugIndex{items::kUnavailableLinkedPlugIndex};
 };
 
 /** Disk form of one material charged by a native Collections acquisition. */
@@ -466,7 +469,7 @@ static_assert(sizeof(NamedRecord)
               == content::kDefinitionNameCapacity + 2 * sizeof(std::uint16_t)
                      + 2 * sizeof(std::uint32_t));
 static_assert(sizeof(ItemRecord)
-              == sizeof(std::uint32_t) + 3 * sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t));
+              == 2 * sizeof(std::uint32_t) + 5 * sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t));
 static_assert(sizeof(MaterialRequirementRecord)
               == sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t));
 static_assert(sizeof(CollectibleRecord)

@@ -18,6 +18,7 @@
 #include "material_requirements/material_requirement_catalog.h"
 #include "progressions/definition.h"
 #include "scenarios/definition.h"
+#include "socket_entry_buckets/definition.h"
 #include "socket_entry_lists/definition.h"
 #include "spawn_sets/definition.h"
 #include "vendors/definition.h"
@@ -86,12 +87,9 @@ publish_item_definitions(std::span<const items::Definition> definitions) noexcep
 
 /**
  * Finds one installed item by the native dense definition index used by Collections requests.
-
- * * @param definitionIndex Native item-definition row index.
- * @param definition Receives the
- * exact installed mapping.
- * @return True when the complete table is ready and contains the
- * requested row.
+ * @param definitionIndex Native item-definition row index.
+ * @param definition Receives the exact installed mapping.
+ * @return True when the complete table is ready and contains the requested row.
  */
 [[nodiscard]] bool find_item_definition_index(std::uint16_t definitionIndex,
                                               items::Definition& definition) noexcept;
@@ -180,6 +178,18 @@ publish_socket_plug_rules(std::span<const items::socket_plugs::Rule> rules,
                                           std::uint16_t plugDefinitionIndex) noexcept;
 
 /**
+ * Walks every plug one exact ordinary socket lane accepts. Missing relations fail closed.
+ * @return True when the lane has a pool and the visitor saw every member.
+ */
+[[nodiscard]] bool visit_socket_plug_pool(std::uint16_t itemDefinitionIndex,
+                                          std::uint8_t lane,
+                                          items::socket_plugs::MemberVisitor visitor,
+                                          void* context) noexcept;
+
+/** @return True when one plug definition occurs in any installed ordinary-socket plug pool. */
+[[nodiscard]] bool is_socket_plug_pooled(std::uint16_t plugDefinitionIndex) noexcept;
+
+/**
  * Answers whether one profile definition needs an item-instance resident so the native socket
  * action route can materialize it. Only stackable installed socket plugs in the supported mod and
  * shader profile buckets qualify; currency/material/intrinsic rows do not.
@@ -240,6 +250,41 @@ publish_ability_buckets(std::span<const abilities::Definition> definitions) noex
 [[nodiscard]] bool find_ability_buckets(std::uint16_t socketEntryListIndex,
                                         const abilities::Selection& selection,
                                         abilities::Definition& definition) noexcept;
+
+/**
+ * Drops the published ability bucket domain so the next investment refresh slice rebuilds it.
+ * A committed subclass ability-entry change makes the published rows stale for their character,
+ * since they were keyed by the selection in place when the domain was first built.
+ */
+void invalidate_ability_buckets() noexcept;
+
+/**
+ * @return True when at least one socket-entry list's resolved bucket destinations are published.
+ * Never part of the on-disk content cache: it is small and cheap to recompute, so a warm boot that
+ * skips re-extraction must not leave it empty for the whole session.
+ */
+[[nodiscard]] bool socket_entry_buckets_ready() noexcept;
+
+/**
+ * Publishes every socket-entry list's resolved per-entry ability-bucket destinations.
+ * A derived cache of static content, so unlike the ability buckets above it never needs
+ * invalidating: a subclass's entry table does not change after content extraction.
+ * @param definitions Complete rows, one per socket-entry list that carries a super lane.
+ * @return True when the rows pass the checks.
+ */
+[[nodiscard]] bool publish_socket_entry_buckets(
+    std::span<const socket_entry_buckets::Definition> definitions) noexcept;
+
+/**
+ * Finds which of the 12 semantic ability buckets one socket entry resolves to.
+ * @param socketEntryListIndex Native socket-entry-list index of the subclass.
+ * @param entryIndex The entry to look up.
+ * @param bucket Receives the resolved destination, or the no-destination sentinel.
+ * @return True when the list's row is published and the entry index is in range.
+ */
+[[nodiscard]] bool find_socket_entry_bucket(std::uint16_t socketEntryListIndex,
+                                            std::uint8_t entryIndex,
+                                            std::uint8_t& bucket) noexcept;
 
 /** @return True when the installed investment constants are in State. */
 [[nodiscard]] bool investment_constants_ready() noexcept;
@@ -317,6 +362,21 @@ publish_socket_entry_lists(std::span<const socket_entry_lists::Definition> defin
  */
 [[nodiscard]] bool find_socket_entry_list(std::uint16_t definitionIndex,
                                           socket_entry_lists::Definition& definition) noexcept;
+
+/** Number of subclass items every character class ships in this build. */
+inline constexpr std::size_t kSubclassGroupSize = 3;
+
+/**
+ * Finds the 2 other subclasses that share one character class with a known member.
+ * The installed manifest lists every subclass item as one dense run per class, in native
+ * definition-index order, so the run holding a known member gives every other member.
+ * @param memberDefinitionIndex Native item-definition index of one subclass in the class.
+ * @param group Receives the 3 member indices, in native definition-index order.
+ * @return True when every subclass item was found and `memberDefinitionIndex` is one of them.
+ */
+[[nodiscard]] bool
+find_subclass_group(std::uint16_t memberDefinitionIndex,
+                    std::array<std::uint16_t, kSubclassGroupSize>& group) noexcept;
 
 /** @return True when a complete destination-layout domain, empty or not, is published. */
 [[nodiscard]] bool scenario_layouts_ready() noexcept;

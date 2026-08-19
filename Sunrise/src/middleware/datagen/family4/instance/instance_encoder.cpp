@@ -66,7 +66,7 @@ namespace {
     for (std::size_t index = 0; index < input.socketEntryStates.size(); ++index) {
         const SocketEntryState state = input.socketEntryStates[index];
         if (state != SocketEntryState::absent && state != SocketEntryState::ready
-            && state != SocketEntryState::active) {
+            && state != SocketEntryState::acquired && state != SocketEntryState::active) {
             return false;
         }
         if (index >= input.socketEntryCount && state != SocketEntryState::absent) {

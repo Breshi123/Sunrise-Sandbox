@@ -201,6 +201,8 @@ bool process(const ServiceRoute& route,
         outcome.subscription = webOutcome.subscription;
         const auto* equipmentSwap =
             web_service::mutation_if<state::PendingEquipmentSwap>(webOutcome);
+        const auto* subclassSelection =
+            web_service::mutation_if<state::PendingSubclassSelection>(webOutcome);
         const auto* socketPlug = web_service::mutation_if<state::PendingSocketPlug>(webOutcome);
         const auto* itemState = web_service::mutation_if<state::PendingItemState>(webOutcome);
         const auto* itemAcquisition =
@@ -211,9 +213,8 @@ bool process(const ServiceRoute& route,
             web_service::mutation_if<state::PendingItemDismantle>(webOutcome);
         if (equipmentSwap != nullptr) {
             // Equip is an optimistic Character-screen action. Its status-pair value is the exact
-            // Family-4 revision whose following Queuez frame makes the action authoritative. Stage
-            // that revision before encoding the reply so the Client cannot complete the action
-            // against the old object store.
+            // Family-4 revision whose following Queuez frame makes it authoritative. Stage that
+            // revision before encoding the reply, or the Client completes against the old store.
             auto& transaction = outcome.transaction.emplace<EquipmentSwapTransaction>();
             if (!queuez::stage_equipment_swap(
                     queuezState, equipmentSwap->characterSoid, transaction.update)) {
@@ -239,6 +240,38 @@ bool process(const ServiceRoute& route,
                 }
                 web_service::report_equip_response(message, status.value, output.first(written));
                 transaction.pending = *equipmentSwap;
+            }
+        }
+        if (subclassSelection != nullptr) {
+            // Opcode 801 completes at the exact Family-4 revision carrying the selected subclass
+            // socket entry. The resident manifest and equipped subclass identity stay unchanged.
+            auto& transaction = outcome.transaction.emplace<SubclassSelectionTransaction>();
+            if (!queuez::stage_subclass_selection(queuezState,
+                                                  subclassSelection->accountSoid,
+                                                  subclassSelection->characterSoid,
+                                                  subclassSelection->subclassInstanceSoid,
+                                                  transaction.update)) {
+                core::log::write(core::log::Channel::server,
+                                 core::log::Level::warn,
+                                 "ev=subclass_select stage=queuez_preflight result=fail");
+                outcome.transaction = std::monostate{};
+            } else {
+                middleware::web_service::StatusResponse status{};
+                status.value = transaction.update.after.family4Version;
+                if (!middleware::web_service::encode_response(
+                        message,
+                        middleware::web_service::ResponseShape::statusPair,
+                        status,
+                        output,
+                        written)) {
+                    core::log::write(core::log::Channel::server,
+                                     core::log::Level::warn,
+                                     "ev=subclass_select stage=response result=fail");
+                    return false;
+                }
+                web_service::report_subclass_selection_response(
+                    message, status.value, *subclassSelection, output.first(written));
+                transaction.pending = *subclassSelection;
             }
         }
         if (socketPlug != nullptr) {
@@ -382,9 +415,8 @@ bool process(const ServiceRoute& route,
         }
         if (itemDismantle != nullptr) {
             // Dismantle is another optimistic Character-screen action. Promise only the exact
-            // Family-4 revision that carries both the character after-image and the empty
-            // item-instance release descriptor; otherwise retain the generic sentinel reply and
-            // publish no removal.
+            // Family-4 revision carrying both the character after-image and the empty release
+            // descriptor; otherwise keep the generic sentinel reply and publish no removal.
             auto& transaction = outcome.transaction.emplace<ItemDismantleTransaction>();
             if (!queuez::stage_item_dismantle(queuezState,
                                               itemDismantle->accountSoid,

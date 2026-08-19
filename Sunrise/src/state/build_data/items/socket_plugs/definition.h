@@ -36,4 +36,7 @@ struct Pool {
 /** Native item-definition index of one allowed plug. */
 using Member = std::uint16_t;
 
+/** Called once per pool member; returning false stops the walk. */
+using MemberVisitor = bool (*)(void* context, Member plugDefinitionIndex) noexcept;
+
 } // namespace sunrise::state::build_data::items::socket_plugs

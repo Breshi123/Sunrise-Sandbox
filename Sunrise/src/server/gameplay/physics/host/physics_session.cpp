@@ -29,7 +29,7 @@ constexpr std::size_t kSessionCapacity = kWorldCapacity;
 constexpr std::size_t kAdmittedCapacity = 8;
 /** Host-session rows one snapshot reads. */
 constexpr std::size_t kHostRowCapacity = 8;
-/** `RE/49` runs the world at 30 Hz, so one tick is due every 33 ms. */
+/** The world runs at 30 Hz, so one tick is due every 33 ms. */
 constexpr std::uint64_t kTickIntervalMs = 33;
 /** Empty scene scale. Nothing reads it until an actor carries a transform. */
 constexpr float kMillimetersPerUnit = 1000.0F;

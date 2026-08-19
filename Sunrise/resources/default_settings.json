@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 8,
   "core": {
     "logging": {
       "debugger_sink": true,
@@ -147,27 +147,29 @@
     "account": {
       "primary_soid": "0x9EAA300100100100",
       "dismantle_rewards": [
-        {
-          "definition_hash": "0x3CF2E8E2",
-          "quantity": 4
-        },
-        {
-          "definition_hash": "0x28D6AC07",
-          "quantity": 3
-        }
+        { "definition_hash": "0xBC53E66E", "quantity": 25, "rarity": "common" },
+        { "definition_hash": "0xBC53E66E", "quantity": 50, "rarity": "uncommon" },
+        { "definition_hash": "0xBC53E66E", "quantity": 100, "rarity": "rare" },
+        { "definition_hash": "0xBC53E66E", "quantity": 250, "rarity": "legendary" },
+        { "definition_hash": "0xBC53E66E", "quantity": 500, "rarity": "exotic" },
+        { "definition_hash": "0x3CF2E8E2", "quantity": 3, "rarity": "legendary" },
+        { "definition_hash": "0x3CF2E8E2", "quantity": 5, "rarity": "exotic" },
+        { "definition_hash": "0x28D6AC07", "quantity": 1, "rarity": "rare", "class": "weapon" },
+        { "definition_hash": "0x28D6AC07", "quantity": 3, "rarity": ["legendary", "exotic"], "class": "weapon" },
+        { "definition_hash": "0xE5B38AD2", "quantity": 3, "rarity": ["legendary", "exotic"], "masterworked": true }
       ],
       "profile_items": [
         {
           "definition_hash": "0xBC53E66E",
-          "quantity": 250000
+          "quantity": 100000
         },
         {
           "definition_hash": "0x3CF2E8E2",
-          "quantity": 999999
+          "quantity": 50000
         },
         {
           "definition_hash": "0xA7EE4765",
-          "quantity": 999999
+          "quantity": 50000
         },
         {
           "definition_hash": "0xB19439E5",
@@ -175,7 +177,7 @@
         },
         {
           "definition_hash": "0x28D6AC07",
-          "quantity": 9999
+          "quantity": 500
         },
         {
           "definition_hash": "0xE5B38AD2",
@@ -235,6 +237,8 @@
           "brightness": 3,
           "show_fps": false,
           "hdr_mode": 0,
+          "vertical_sync_interval": 0,
+          "field_of_view": 85,
           "calibration_primary": 10000.0,
           "calibration_alpha": 0.0
         },
@@ -267,6 +271,7 @@
           "clan_chat_join_mode": 1,
           "chat_auto_hide_mode": 1
         },
+        "key_binding_source": "computer",
         "key_bindings": {
           "fire": { "primary": "left mouse button", "secondary": null },
           "toggle_zoom": { "primary": null, "secondary": null },

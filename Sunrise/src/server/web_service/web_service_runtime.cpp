@@ -18,6 +18,7 @@
 #include "../../middleware/web_service/messages/opcode503.h"
 #include "../../middleware/web_service/messages/opcode504.h"
 #include "../../middleware/web_service/messages/opcode601/opcode601_codec.h"
+#include "../../middleware/web_service/messages/opcode801.h"
 #include "../../middleware/web_service/messages/opcode901/opcode901_codec.h"
 #include "../../middleware/web_service/messages/opcode903.h"
 #include "../../middleware/web_service/web_service_envelope.h"
@@ -270,10 +271,8 @@ bool consume(std::span<const std::byte> request,
         && middleware::web_service::messages::opcode206::parse_request(message, subscription);
 
     // The action runs before its reply is encoded, because the reply reports whether it worked.
-    // Each action fills the outcome only once it has prepared its whole transition, so an outcome
-    // still empty after one ran is that action refusing the request. Nothing is published here:
-    // both the prepared mutation and the subscription are handed back for the caller to publish
-    // once the whole response is framed.
+    // An action fills the outcome only once it has prepared its whole transition, so an outcome
+    // still empty afterwards is that action refusing the request. Nothing is published here.
     bool dispatched = true;
     if (message.opcode == middleware::web_service::messages::opcode504::kOpcode) {
         select_character(message, outcome);
@@ -283,6 +282,8 @@ bool consume(std::span<const std::byte> request,
         mutate_equipment(message, false, outcome);
     } else if (message.opcode == kUnequipOpcode) {
         mutate_equipment(message, true, outcome);
+    } else if (message.opcode == middleware::web_service::messages::opcode801::kOpcode) {
+        mutate_subclass_selection(message, outcome);
     } else if (message.opcode == middleware::web_service::messages::opcode903::kOpcode) {
         mutate_socket_plug(message, outcome);
     } else if (message.opcode == middleware::web_service::messages::opcode1901::kOpcode) {

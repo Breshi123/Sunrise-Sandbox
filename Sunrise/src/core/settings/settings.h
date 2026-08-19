@@ -18,7 +18,7 @@ namespace sunrise::core::settings {
  * Raise it when a key is renamed, removed, changes meaning, or must take a new default.
  * Adding a key needs no raise, because a missing key already takes its default.
  */
-inline constexpr std::uint32_t kSettingsVersion = 6;
+inline constexpr std::uint32_t kSettingsVersion = 8;
 
 /** Parsed read-only process settings. */
 struct Settings {

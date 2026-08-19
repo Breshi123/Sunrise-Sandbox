@@ -1,4 +1,5 @@
 #include "../inventory/buckets/inventory_bucket_catalog.h"
+#include "../items/details/definition.h"
 #include "../items/item_catalog.h"
 #include "../runtime.h"
 #include "../socket_entry_lists/socket_entry_list_catalog.h"
@@ -67,6 +68,43 @@ bool find_socket_entry_list(std::uint16_t definitionIndex,
                             socket_entry_lists::Definition& definition) noexcept {
     definition = {};
     return socket_entry_lists_ready() && socket_entry_lists::find(definitionIndex, definition);
+}
+
+/** Finds the 2 other subclasses sharing one character class with a known member. */
+bool find_subclass_group(std::uint16_t memberDefinitionIndex,
+                         std::array<std::uint16_t, kSubclassGroupSize>& group) noexcept {
+    group.fill(0);
+    const std::size_t itemCount = item_definition_count();
+    if (itemCount == 0) {
+        return false;
+    }
+    // Every subclass item (any item carrying a socket-entry-list), in native definition-index
+    // order. The installed manifest lists these as one dense run of kSubclassGroupSize per class.
+    std::array<std::uint16_t, socket_entry_lists::kEntryTableCapacity> subclasses{};
+    std::size_t subclassCount = 0;
+    for (std::size_t index = 0; index < itemCount && subclassCount < subclasses.size(); ++index) {
+        items::details::Definition detail{};
+        socket_entry_lists::EntryTable entries{};
+        if (find_configured_item_detail(static_cast<std::uint16_t>(index), detail)
+            && detail.definitionIndex == index
+            && find_socket_entry_table(detail.socketEntryListIndex, entries)) {
+            subclasses[subclassCount++] = static_cast<std::uint16_t>(index);
+        }
+    }
+    for (std::size_t base = 0; base + kSubclassGroupSize <= subclassCount;
+         base += kSubclassGroupSize) {
+        const bool matches = subclasses[base] == memberDefinitionIndex
+                             || subclasses[base + 1] == memberDefinitionIndex
+                             || subclasses[base + 2] == memberDefinitionIndex;
+        if (!matches) {
+            continue;
+        }
+        group[0] = subclasses[base];
+        group[1] = subclasses[base + 1];
+        group[2] = subclasses[base + 2];
+        return true;
+    }
+    return false;
 }
 
 } // namespace sunrise::state::build_data

@@ -11,14 +11,43 @@ namespace sunrise::state {
 
 /** One account can own at most the 3 playable character slots. */
 inline constexpr std::size_t kCharacterCapacity = 3;
-/** A server-authored dismantle policy stays small but leaves room for build variants. */
-inline constexpr std::size_t kDismantleRewardPolicyCapacity = 8;
+/** A server-authored dismantle policy: a few rows per rarity and gear class. */
+inline constexpr std::size_t kDismantleRewardPolicyCapacity = 32;
 
-/** One profile material credited when ordinary character gear is dismantled. */
+/** Gear classes a dismantle payout row can be limited to. */
+enum class DismantleGearClass : std::uint8_t {
+    weapon = 1U << 0U,
+    armor = 1U << 1U,
+};
+
+/** Whether a payout row wants the dismantled item masterworked. */
+enum class DismantleMasterworkFilter : std::uint8_t {
+    any = 0,
+    masterworked = 1,
+    notMasterworked = 2,
+};
+
+/**
+ * One profile material credited when ordinary character gear is dismantled. Every filter left at
+ * its "any" value matches every item; the payout is the sum of the matching rows.
+ */
 struct DismantleRewardPolicy {
     std::uint32_t definitionHash{};
     std::int32_t quantity{};
+    /** Bit (1 << tier) per native tier 1-5 the row pays for; 0 pays for every tier. */
+    std::uint8_t tierMask{};
+    /** DismantleGearClass bits the row pays for; 0 pays for both. */
+    std::uint8_t classMask{};
+    DismantleMasterworkFilter masterwork{DismantleMasterworkFilter::any};
 };
+
+/** @return True when both rows are the same row: same material under the same filters. */
+[[nodiscard]] constexpr bool
+same_dismantle_policy_key(const DismantleRewardPolicy& left,
+                          const DismantleRewardPolicy& right) noexcept {
+    return left.definitionHash == right.definitionHash && left.tierMask == right.tierMask
+           && left.classMask == right.classMask && left.masterwork == right.masterwork;
+}
 
 /** Stable character race values authored independently of package definition mappings. */
 enum class CharacterRace : std::uint8_t {
@@ -66,6 +95,38 @@ inline constexpr std::uint8_t kDefaultMeleeAbilityEntry = 11;
 /** Default class-ability entry. Which bucket it publishes into follows the character class. */
 inline constexpr std::uint8_t kDefaultClassAbilityEntry = 2;
 
+/**
+ * Semantic ability-bucket destinations shared by the wire encoder and the selection logic that
+ * routes a clicked socket entry to a character field. A subclass entry's authored selector chain,
+ * not its table position, decides which it reaches; a bundled pick can mix members across them.
+ */
+inline constexpr std::uint8_t kGrenadeAbilityBucket = 0;
+inline constexpr std::uint8_t kSuperAbilityBucket = 1;
+inline constexpr std::uint8_t kMeleeAbilityBucket = 2;
+inline constexpr std::uint8_t kMovementAbilityBucket = 3;
+inline constexpr std::uint8_t kSprintAbilityBucket = 4;
+
+/**
+ * Widest node bundle one summary pick can publish together.
+ * Some groups (an Attunement pick, for example) hold several consecutive entries that all
+ * activate, and contribute their hashes, as one unit rather than a single alternative per group.
+ */
+inline constexpr std::size_t kMaxAttunementBundleSize = 4;
+
+/** @param characterClass Authored class. @return The bucket its class ability publishes into. */
+[[nodiscard]] inline constexpr std::uint8_t
+class_ability_bucket(CharacterClass characterClass) noexcept {
+    switch (characterClass) {
+    case CharacterClass::hunter:
+        return 9;
+    case CharacterClass::warlock:
+        return 11;
+    case CharacterClass::titan:
+    default:
+        return 6;
+    }
+}
+
 /** Authored state for one playable character slot. */
 struct CharacterState {
     std::uint64_t soid{};
@@ -84,19 +145,11 @@ struct CharacterState {
     /** Server policy that arms content checks only with the matching family-5 flag. */
     bool contentBypass{};
     /**
-     * Socket-entry-list entry naming the movement ability this character has selected.
-     * One subclass group holds several movement entries, and the selected one decides which
-     * ability buckets the character record publishes. A player choice, so it is authored.
+     * Runtime-only socket entries the player has selected at least once. Selected entries still
+     * publish active; this mask keeps a later inactive entry acquired instead of new. Unverified:
+     * defaulted all-set, assuming the Client only allows clicking an already-acquired node.
      */
-    std::uint8_t movementAbilityEntry{kDefaultMovementAbilityEntry};
-    /** Socket entry naming the grenade this character has selected. */
-    std::uint8_t grenadeAbilityEntry{kDefaultGrenadeAbilityEntry};
-    /** Socket entry naming the super this character has selected. */
-    std::uint8_t superAbilityEntry{kDefaultSuperAbilityEntry};
-    /** Socket entry naming the melee this character has selected. */
-    std::uint8_t meleeAbilityEntry{kDefaultMeleeAbilityEntry};
-    /** Socket entry naming the class ability this character has selected. */
-    std::uint8_t classAbilityEntry{kDefaultClassAbilityEntry};
+    std::uint64_t acquiredSubclassAbilityMask{~std::uint64_t{0}};
     /** Authored loadout keyed only by stable semantic equipment slots. */
     account::inventory::Equipment equipment;
     /** Unequipped items routed into their installed character-inventory bucket ranges. */

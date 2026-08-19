@@ -16,6 +16,12 @@ constexpr std::uint64_t kFamily4RepushDelayMs = 400;
 /** The banner pair lands the same unsolicited way and hits the same record-state race. */
 constexpr std::uint64_t kBannerRepushDelayMs = 400;
 /**
+ * Delay before the ability-icon re-derivation owed by a subclass selection.
+ * The Client content-extraction pump that rebuilds the invalidated ability buckets runs on the
+ * next few RunCallbacks pumps, well under this window.
+ */
+constexpr std::uint64_t kAbilityRefreshDelayMs = 500;
+/**
  * How long the roster keeps its faster cadence after a load starts.
  * The slice-set load step costs 9.2 to 14.1 s, so this covers it.
  */
@@ -166,6 +172,10 @@ void release_activity_connection(Session& session) noexcept {
 /** Arms the owed Family-4 and banner re-pushes when the queuez publication asks for them. */
 void arm_repushes(Session& session, const queuez::StagedPublication& queuezPublication) noexcept {
     const std::uint64_t now = GetTickCount64();
+    if (queuezPublication.armsAbilityRefresh) {
+        session.abilityRefreshDueTick = now + kAbilityRefreshDelayMs;
+        session.abilityRefreshArmed = true;
+    }
     if (queuezPublication.armsFamily4Repush && queuezPublication.family4RepushRoot != 0) {
         session.family4RepushDueTick = now + kFamily4RepushDelayMs;
         session.family4RepushRoot = queuezPublication.family4RepushRoot;

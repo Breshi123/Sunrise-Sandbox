@@ -76,4 +76,14 @@ void reset() noexcept {
     ReleaseSRWLockExclusive(&g_lifecycleLock);
 }
 
+/** Makes the next due pump take another refresh slice even though a prior one completed. */
+void request_slice() noexcept {
+    AcquireSRWLockExclusive(&g_lifecycleLock);
+    if (g_accepting) {
+        g_complete = false;
+        g_nextEligible = 0;
+    }
+    ReleaseSRWLockExclusive(&g_lifecycleLock);
+}
+
 } // namespace sunrise::client::content::investment::worker

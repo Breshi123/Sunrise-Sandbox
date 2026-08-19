@@ -30,12 +30,15 @@ struct ReplacedMember {
  * Members replaced with the bundled default, each with the version that changed it.
  * A member is listed because its value form changed, or because its default changed.
  */
-constexpr std::array<ReplacedMember, 5> kReplacedMembers{{
+constexpr std::array<ReplacedMember, 6> kReplacedMembers{{
     {"\"key_bindings\"", 3},
     {"\"region_private\"", 5},
     {"\"topology\"", 5},
     {"\"characters\"", 5},
-    {"\"profile_items\"", 6},
+    {"\"profile_items\"", 7},
+    // Version 8 turned the flat payout list into rows filtered by rarity, gear class and
+    // masterwork state.
+    {"\"dismantle_rewards\"", 8},
 }};
 /** One splice per replaced member, plus the version member itself. */
 constexpr std::size_t kSpliceCapacity = kReplacedMembers.size() + 1;

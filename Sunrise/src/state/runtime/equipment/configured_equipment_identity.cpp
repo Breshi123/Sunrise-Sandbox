@@ -74,20 +74,14 @@ void mix_item(std::uint64_t& hash, const account::inventory::Item& item) noexcep
     mix_value(hash, item.definitionHash);
     mix_value(hash, static_cast<std::uint32_t>(item.level));
     mix_sockets(hash, item.sockets);
-}
-
-/**
- * Mixes one character's 5 selected subclass entries.
- * The ability bucket rows are keyed by these, so a changed pick must rebuild.
- * @param hash Mutable 64-bit FNV-1a accumulator.
- * @param character Authored character.
- */
-void mix_ability_selection(std::uint64_t& hash, const CharacterState& character) noexcept {
-    mix_byte(hash, character.movementAbilityEntry);
-    mix_byte(hash, character.grenadeAbilityEntry);
-    mix_byte(hash, character.superAbilityEntry);
-    mix_byte(hash, character.meleeAbilityEntry);
-    mix_byte(hash, character.classAbilityEntry);
+    // Meaningful only for a subclass, but mixed for every item: the ability bucket rows are keyed
+    // by these, so a changed pick must rebuild, and they live on the item now (each owned
+    // subclass remembers its own picks independently rather than sharing one set).
+    mix_byte(hash, item.movementAbilityEntry);
+    mix_byte(hash, item.grenadeAbilityEntry);
+    mix_byte(hash, item.superAbilityEntry);
+    mix_byte(hash, item.meleeAbilityEntry);
+    mix_byte(hash, item.classAbilityEntry);
 }
 
 } // namespace
@@ -99,7 +93,6 @@ std::uint64_t configured_hash(const AccountState& accountState) noexcept {
     for (std::size_t characterIndex = 0; characterIndex < accountState.characterCount;
          ++characterIndex) {
         const CharacterState& character = accountState.characters[characterIndex];
-        mix_ability_selection(hash, character);
         for (const std::optional<account::inventory::Item>& item : character.equipment.slots) {
             if (!item.has_value()) {
                 mix_byte(hash, kAbsentItemMarker);

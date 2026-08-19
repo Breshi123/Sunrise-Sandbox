@@ -56,9 +56,8 @@ bool build_item_rows(const reader::Source& source,
     const std::span<const std::byte> container{storage.child};
     reason = "rows";
     // The detail closure is gathered during this one walk. Collections can name any installed
-    // item row, including profile-owned shaders and modifications, so retain every readable row
-    // rather than only startup-authored/equippable definitions. The fixed request bitset still
-    // bounds this to the installed 16-bit item-table domain.
+    // item row, including profile-owned shaders and modifications, so retain every readable row.
+    // The fixed request bitset bounds this to the installed 16-bit item-table domain.
     storage.detailRequests.reset();
     storage.specialPlugCategories.fill(0);
     std::size_t detailCount = 0;
@@ -84,7 +83,11 @@ bool build_item_rows(const reader::Source& source,
                                                  item.definitionIndex,
                                                  item.bucketId,
                                                  item.insertionMaterialRequirementSetIndex,
-                                                 item.enabledMaterialRequirementSetIndex};
+                                                 item.enabledMaterialRequirementSetIndex,
+                                                 item.tier,
+                                                 item.plugCategoryHash,
+                                                 item.rollSetIndex,
+                                                 item.linkedPlugIndex};
         if (needSocketPlugs) {
             storage.specialPlugCategories[item.definitionIndex] =
                 special_plug_category(item.plugCategoryHash);
@@ -166,10 +169,14 @@ bool build_item_rows(const reader::Source& source,
         }
     }
     // Ability buckets read the socket entry list table again and depend on the detail domain, so
-    // they run last.
-    if (published && !state::build_data::ability_buckets_ready()) {
+    // they run last. The entry-bucket table never joins the on-disk cache, so a warm boot still
+    // has to run this once to fill it in for the session.
+    if (published
+        && (!state::build_data::ability_buckets_ready()
+            || !state::build_data::socket_entry_buckets_ready())) {
         reason = "abilities";
         std::size_t abilityCount = 0;
+        std::size_t entryBucketCount = 0;
         const bool built = build_character_abilities(source,
                                                      storage.scratch,
                                                      std::span<const std::byte>{storage.root},
@@ -177,10 +184,14 @@ bool build_item_rows(const reader::Source& source,
                                                      storage.definition,
                                                      storage.abilityPool,
                                                      storage.abilityRows,
-                                                     abilityCount);
+                                                     abilityCount,
+                                                     storage.entryBucketRows,
+                                                     entryBucketCount);
         published = built
                     && state::build_data::publish_ability_buckets(
-                        std::span(storage.abilityRows).first(abilityCount));
+                        std::span(storage.abilityRows).first(abilityCount))
+                    && state::build_data::publish_socket_entry_buckets(
+                        std::span(storage.entryBucketRows).first(entryBucketCount));
         if (built) {
             report_ability_count(abilityCount);
         }

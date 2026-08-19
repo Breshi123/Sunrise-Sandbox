@@ -166,6 +166,39 @@ bool append_socket_plug_notification(Scratch& scratch,
     return true;
 }
 
+/** Appends one subclass item-instance upsert after an opcode-801 selection. */
+bool append_subclass_selection_notification(Scratch& scratch,
+                                            const queuez::SubclassSelection& selection,
+                                            const state::PendingSubclassSelection& mutation,
+                                            std::span<const std::byte, state::kAesKeySize> key,
+                                            std::span<const std::byte, state::kBapNonceSize> nonce,
+                                            std::span<std::byte> response,
+                                            std::size_t& written) noexcept {
+    snapshot::Prepared prepared{};
+    if (!snapshot::prepare_subclass_selection(scratch, selection, mutation, prepared)) {
+        return false;
+    }
+    const std::size_t objectCount = prepared.family.objects.size();
+    const std::size_t beforeBytes = written;
+    if (objectCount != 1 || prepared.family.objects.front().id != selection.itemInstanceDefinitionId
+        || prepared.family.objects.front().version != selection.subclassInstanceSoid
+        || prepared.family.objects.front().encoding != middleware::queuez::Encoding::oodle
+        || prepared.family.objects.front().payload.empty()
+        || !queuez_frame::append(scratch,
+                                 prepared.family,
+                                 prepared.rawClearSize,
+                                 prepared.compressedClearSize,
+                                 key,
+                                 nonce,
+                                 response,
+                                 written)) {
+        return false;
+    }
+    queuez_report::push(
+        "subclass_select", queuez::kAccountFamilyType, objectCount, written - beforeBytes, 1);
+    return true;
+}
+
 /** Appends one atomic new-instance-before-character Family-4 acquisition update. */
 bool append_item_acquisition_notification(Scratch& scratch,
                                           const queuez::ItemAcquisition& acquisition,

@@ -16,6 +16,20 @@ void publish() noexcept;
 
 } // namespace ability_buckets
 
+/** Socket-entry bucket domain publish marker. */
+namespace socket_entry_buckets {
+
+/** Clears the marker. */
+void clear() noexcept;
+
+/** Marks the domain complete. An empty domain counts as complete. */
+void publish() noexcept;
+
+/** @return True once a complete domain has been published. */
+[[nodiscard]] bool ready() noexcept;
+
+} // namespace socket_entry_buckets
+
 /** Configured item detail domain publish marker. */
 namespace details {
 

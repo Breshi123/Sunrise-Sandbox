@@ -18,9 +18,16 @@ inline constexpr std::size_t kIdentityCapacity =
            && item.mutationSerial == 0;
 }
 
+/** Tier bits 1-5 are the native rarity ladder; bit 0 (no tier) is never a payout target. */
+constexpr std::uint8_t kDismantleTierMaskBits = 0b0011'1110U;
+constexpr std::uint8_t kDismantleClassMaskBits =
+    static_cast<std::uint8_t>(DismantleGearClass::weapon)
+    | static_cast<std::uint8_t>(DismantleGearClass::armor);
+
 /** @return True when one unused dismantle policy row is canonical zero. */
 [[nodiscard]] bool empty_dismantle_reward(const DismantleRewardPolicy& reward) noexcept {
-    return reward.definitionHash == 0 && reward.quantity == 0;
+    return reward.definitionHash == 0 && reward.quantity == 0 && reward.tierMask == 0
+           && reward.classMask == 0 && reward.masterwork == DismantleMasterworkFilter::any;
 }
 
 /** Checks filled policy rows, uniqueness, and the zero tail. */
@@ -36,11 +43,14 @@ inline constexpr std::size_t kIdentityCapacity =
             }
             continue;
         }
-        if (reward.definitionHash == inventory::kNoDefinitionHash || reward.quantity <= 0) {
+        if (reward.definitionHash == inventory::kNoDefinitionHash || reward.quantity <= 0
+            || (reward.tierMask & ~kDismantleTierMaskBits) != 0
+            || (reward.classMask & ~kDismantleClassMaskBits) != 0
+            || reward.masterwork > DismantleMasterworkFilter::notMasterworked) {
             return false;
         }
         for (std::size_t prior = 0; prior < index; ++prior) {
-            if (state.dismantleRewards[prior].definitionHash == reward.definitionHash) {
+            if (same_dismantle_policy_key(state.dismantleRewards[prior], reward)) {
                 return false;
             }
         }

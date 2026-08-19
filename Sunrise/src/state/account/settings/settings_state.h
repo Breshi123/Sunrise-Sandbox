@@ -9,6 +9,12 @@ namespace sunrise::state::account::settings {
 /** The account record's one-time audio migration treats version 8 as finished. */
 inline constexpr std::int8_t kCompletedAudioMigrationVersion = 8;
 
+/** Selects account-replicated or computer-local keyboard and mouse bindings. */
+enum class KeyBindingSource : std::uint8_t {
+    account,
+    computer,
+};
+
 /** Authored controller and mouse input preferences. */
 struct Controls {
     std::int8_t buttonLayout{};
@@ -48,6 +54,10 @@ struct Display {
     std::int8_t brightness{};
     bool showFps{};
     std::int8_t hdrMode{};
+    /** Presentation interval: 0 disables VSync, 1 to 4 wait that many refreshes. */
+    std::uint8_t verticalSyncInterval{};
+    /** Horizontal field of view in degrees. */
+    std::int32_t fieldOfView{85};
     /** First unidentified renderer-calibration scalar. */
     float calibrationPrimary{};
     /** Second unidentified renderer-calibration scalar. */
@@ -95,6 +105,7 @@ struct AccountSettings {
     Display display;
     Interface interface;
     Social social;
+    KeyBindingSource keyBindingSource{KeyBindingSource::computer};
     bindings::KeyBindings keyBindings;
     /** True only when a settings object was supplied by configuration. */
     bool configured{};

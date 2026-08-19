@@ -518,4 +518,117 @@ bool prepare_socket_plug(Scratch& scratch,
     return true;
 }
 
+/** Builds the Family-4 subclass item-instance upsert for one prepared node selection. */
+bool prepare_subclass_selection(Scratch& scratch,
+                                const queuez::SubclassSelection& selection,
+                                const state::PendingSubclassSelection& mutation,
+                                Prepared& prepared) noexcept {
+    const Reservation reservation = reserve_prior(scratch, prepared);
+    if (reservation.rawWriteOffset > scratch.plaintext.size()
+        || reservation.compressedWriteOffset > scratch.sealed.size()) {
+        return report_failure("subclass_select_reservation");
+    }
+
+    state::AccountState account{};
+    if (!mutation.prepared || mutation.accountSoid == 0 || mutation.characterSoid == 0
+        || mutation.subclassInstanceSoid == 0 || mutation.accountSoid != selection.accountSoid
+        || mutation.characterSoid != selection.characterSoid
+        || mutation.subclassInstanceSoid != selection.subclassInstanceSoid
+        || mutation.accountSoid != selection.after.family4RootSoid
+        || selection.itemInstanceDefinitionId == 0
+        || !state::preview_subclass_selection(mutation, account)
+        || mutation.characterIndex >= account.characterCount
+        || account.primarySoid != mutation.accountSoid
+        || account.characters[mutation.characterIndex].soid != mutation.characterSoid) {
+        return report_failure("subclass_select_mutation");
+    }
+
+    Resolved selected{};
+    const std::optional<std::size_t> selectedIndex = find_character_index(account);
+    if (!state::account::valid(account) || !selectedIndex.has_value()
+        || *selectedIndex != mutation.characterIndex
+        || !resolve(account, mutation.characterIndex, selected)
+        || selected.itemInstanceObjectId != selection.itemInstanceDefinitionId) {
+        return report_failure("subclass_select_selection");
+    }
+
+    family4_datagen::loadout::ResolvedInstances changed{};
+    for (std::size_t index = 0; index < selected.loadout.itemCount; ++index) {
+        const family4_datagen::loadout::ResolvedItem& item = selected.loadout.items[index];
+        if (item.instance.instanceSoid != mutation.subclassInstanceSoid) {
+            continue;
+        }
+        if (changed.itemCount != 0 || !item.equipped
+            || item.instance.baseDefinitionIndex != mutation.subclassDefinitionIndex
+            || item.instance.socketEntryListIndex != mutation.socketEntryListIndex
+            || !item.instance.socketEntryContentsResolved
+            || mutation.requestedEntry >= item.instance.socketEntryCount) {
+            return report_failure("subclass_select_item_shape");
+        }
+        changed.items[0] = {item.equipmentSlot, item.instance};
+        changed.itemCount = 1;
+    }
+    if (changed.itemCount != 1) {
+        return report_failure("subclass_select_item_missing");
+    }
+
+    const auto rawStorage = std::span(scratch.plaintext).subspan(reservation.rawWriteOffset);
+    if (family4_datagen::instance::layout::kObjectSize > rawStorage.size()) {
+        return report_failure("subclass_select_item_storage");
+    }
+    Prepared staged{};
+    staged.rawClearSize =
+        (std::max)(reservation.rawClearSize,
+                   reservation.rawWriteOffset + family4_datagen::instance::layout::kObjectSize);
+    std::size_t compressedExtent = reservation.compressedWriteOffset;
+    std::size_t itemCursor = 0;
+    if (!append_items(scratch,
+                      rawStorage,
+                      selection.itemInstanceDefinitionId,
+                      changed,
+                      0,
+                      staged,
+                      itemCursor,
+                      compressedExtent)
+        || itemCursor != 1) {
+        clear_after(scratch, reservation);
+        return report_failure("subclass_select_item_object");
+    }
+
+    staged.compressedClearSize = (std::max)(reservation.compressedClearSize, compressedExtent);
+    staged.family = middleware::queuez::Family{
+        kAccountFamilyType,
+        selection.after.family4RootSoid,
+        selection.after.family4Version,
+        0,
+        std::span(staged.objects).first(1),
+    };
+    if (!commit(staged, prepared)) {
+        clear_after(scratch, reservation);
+        return report_failure("subclass_select_commit");
+    }
+
+    std::array<char, core::log::kLineCapacity> line{};
+    const int count = std::snprintf(
+        line.data(),
+        line.size(),
+        "ev=subclass_select stage=family4_object result=ok family_version=%d root=0x%llX "
+        "character=0x%llX instance=0x%llX item_definition=%u target_definition=%u "
+        "socket_list=%u requested_entry=%u objects=1",
+        selection.after.family4Version,
+        static_cast<unsigned long long>(selection.after.family4RootSoid),
+        static_cast<unsigned long long>(selection.characterSoid),
+        static_cast<unsigned long long>(selection.subclassInstanceSoid),
+        selection.itemInstanceDefinitionId,
+        static_cast<unsigned>(mutation.subclassDefinitionIndex),
+        static_cast<unsigned>(mutation.socketEntryListIndex),
+        static_cast<unsigned>(mutation.requestedEntry));
+    if (count > 0) {
+        core::log::write(core::log::Channel::server,
+                         core::log::Level::debug,
+                         {line.data(), static_cast<std::size_t>(count)});
+    }
+    return true;
+}
+
 } // namespace sunrise::server::bap::encrypted::push::snapshot
