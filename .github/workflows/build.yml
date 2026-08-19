@@ -19,12 +19,15 @@ jobs:
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64
 
       - name: Build
         run: >
           msbuild Sunrise.sln /m
           /p:Configuration=Release
           /p:Platform=x64
+          /p:PreferredToolArchitecture=x64
           /verbosity:minimal
 
       - name: Upload artifact
