@@ -1,9 +1,0 @@
-{
-  "revision": 0,
-  "rules": [
-    {
-      "primary-output": "CMakeFiles/steam_api64.dir/Sunrise/src/core/ui/hud/store/hud_settings_store.cpp.obj"
-    }
-  ],
-  "version": 1
-}

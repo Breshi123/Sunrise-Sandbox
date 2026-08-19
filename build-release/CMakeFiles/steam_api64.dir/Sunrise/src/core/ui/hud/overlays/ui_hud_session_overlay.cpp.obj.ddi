@@ -1,9 +1,0 @@
-{
-  "revision": 0,
-  "rules": [
-    {
-      "primary-output": "CMakeFiles/steam_api64.dir/Sunrise/src/core/ui/hud/overlays/ui_hud_session_overlay.cpp.obj"
-    }
-  ],
-  "version": 1
-}

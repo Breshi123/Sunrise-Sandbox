@@ -1,9 +1,0 @@
-{
-  "revision": 0,
-  "rules": [
-    {
-      "primary-output": "CMakeFiles/steam_api64.dir/Sunrise/src/client/hooks/bootflow/bootflow_texture_override.cpp.obj"
-    }
-  ],
-  "version": 1
-}
