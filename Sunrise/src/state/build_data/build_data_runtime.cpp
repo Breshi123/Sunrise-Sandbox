@@ -10,6 +10,7 @@
 #include "cache/internal.h"
 #include "collectibles/collectible_catalog.h"
 #include "constants/investment_constant_catalog.h"
+#include "entity_names/entity_name_catalog.h"
 #include "hash_names/hash_name_catalog.h"
 #include "hash_names/overlay/name_overlay_catalog.h"
 #include "hash_names/overlay/name_overlay_load.h"
@@ -124,7 +125,8 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
                                  domains.vendorDefinitions,
                                  domains.vendorSaleRows,
                                  domains.vendorInstalledRows))
-        || !hash_names::replace(domains.hashNames)) {
+        || !hash_names::replace(domains.hashNames)
+        || !entity_names::replace(domains.entityNames)) {
         // No domain remains published when any catalog rejects the cache transaction.
         runtime::clear_catalogs();
         runtime::persistence::clear_locked(persistenceState);
@@ -136,6 +138,7 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
     runtime::ability_buckets::publish();
     runtime::spawn_catalog::publish();
     runtime::name_catalog::publish();
+    runtime::entity_name_catalog::publish();
     persistenceState.persisted = true;
     runtime::persistence::release_scratch_locked(persistenceState);
     ReleaseSRWLockExclusive(&persistenceState.lock);

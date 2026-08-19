@@ -31,7 +31,7 @@ SRWLOCK g_refreshLock{SRWLOCK_INIT};
            && state::build_data::socket_entry_buckets_ready()
            && state::build_data::progression_definitions_ready()
            && state::build_data::scenario_layouts_ready() && state::build_data::spawn_sets_ready()
-           && state::build_data::hash_names_ready()
+           && state::build_data::hash_names_ready() && state::build_data::entity_names_ready()
            && state::build_data::investment_constants_ready();
 }
 

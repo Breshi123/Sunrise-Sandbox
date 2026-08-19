@@ -38,6 +38,7 @@ namespace {
            && counts.spawnNameHashes <= output.spawnNameHashes.size()
            && counts.spawnPoints <= output.spawnPoints.size()
            && counts.hashNames <= output.hashNames.size()
+           && counts.entityNames <= output.entityNames.size()
            && counts.vendorIndex <= output.vendorIndex.size()
            && counts.vendorDefinitions <= output.vendorDefinitions.size()
            && counts.vendorSaleRows <= output.vendorSaleRows.size()
@@ -66,6 +67,7 @@ namespace {
         header.spawnNameHashCount,
         header.spawnPointCount,
         header.hashNameCount,
+        header.entityNameCount,
         header.vendorIndexCount,
         header.vendorDefinitionCount,
         header.vendorSaleRowCount,

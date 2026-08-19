@@ -10,6 +10,7 @@
 #include "collectibles/collectible_catalog.h"
 #include "constants/definition.h"
 #include "definition.h"
+#include "entity_names/definition.h"
 #include "hash_names/definition.h"
 #include "inventory/buckets/definition.h"
 #include "items/details/definition.h"
@@ -428,6 +429,22 @@ publish_scenario_layouts(std::span<const scenarios::Definition> definitions,
  * @return True when the table is ready and holds that exact hash.
  */
 [[nodiscard]] bool find_hash_name(std::uint32_t hash, hash_names::Name& name) noexcept;
+
+/** @return True when the complete entity-name table is published. */
+[[nodiscard]] bool entity_names_ready() noexcept;
+
+/** Publishes every resolved entity alias in tag/name order. */
+[[nodiscard]] bool publish_entity_names(std::span<const entity_names::Name> names) noexcept;
+
+/** Finds the first resolved name for an entity tag. */
+[[nodiscard]] bool find_entity_name(std::uint32_t tag, entity_names::Name& name) noexcept;
+
+/** @return Number of cached entity-name aliases. */
+[[nodiscard]] std::size_t entity_name_count() noexcept;
+
+/** Copies the complete entity-name alias table in tag/name order. */
+[[nodiscard]] bool snapshot_entity_names(std::span<entity_names::Name> output,
+                                         std::size_t& count) noexcept;
 
 /** @return True when a complete spawn-set catalog, empty or not, is published. */
 [[nodiscard]] bool spawn_sets_ready() noexcept;

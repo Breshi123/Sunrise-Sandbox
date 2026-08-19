@@ -91,6 +91,7 @@ void clear(records::MutableDomains output) noexcept {
     std::fill(output.spawnNameHashes.begin(), output.spawnNameHashes.end(), spawn_sets::NameHash{});
     std::fill(output.spawnPoints.begin(), output.spawnPoints.end(), spawn_sets::Point{});
     std::fill(output.hashNames.begin(), output.hashNames.end(), hash_names::Name{});
+    std::fill(output.entityNames.begin(), output.entityNames.end(), entity_names::Name{});
     std::fill(output.vendorIndex.begin(), output.vendorIndex.end(), vendors::IndexEntry{});
     std::fill(
         output.vendorDefinitions.begin(), output.vendorDefinitions.end(), vendors::Definition{});
@@ -123,6 +124,7 @@ bool expected_size(const records::DomainCounts& counts, std::uint64_t& size) noe
            && add_records(counts.spawnNameHashes, sizeof(records::SpawnNameHashRecord), size)
            && add_records(counts.spawnPoints, sizeof(records::SpawnPointRecord), size)
            && add_records(counts.hashNames, sizeof(records::HashNameRecord), size)
+           && add_records(counts.entityNames, sizeof(records::EntityNameRecord), size)
            && add_records(counts.vendorIndex, sizeof(records::VendorIndexRecord), size)
            && add_records(counts.vendorDefinitions, sizeof(records::VendorDefinitionRecord), size)
            && add_records(counts.vendorSaleRows, sizeof(records::VendorSaleRowRecord), size)
@@ -194,6 +196,9 @@ bool read_payload(HANDLE file,
             && read_domain<records::HashNameRecord>(
                 file, output.hashNames.first(counts.hashNames), checksum);
     valid = valid
+            && read_domain<records::EntityNameRecord>(
+                file, output.entityNames.first(counts.entityNames), checksum);
+    valid = valid
             && read_domain<records::VendorIndexRecord>(
                 file, output.vendorIndex.first(counts.vendorIndex), checksum);
     valid = valid
@@ -229,6 +234,7 @@ bool read_payload(HANDLE file,
         output.spawnNameHashes.first(counts.spawnNameHashes),
         output.spawnPoints.first(counts.spawnPoints),
         output.hashNames.first(counts.hashNames),
+        output.entityNames.first(counts.entityNames),
         output.vendorIndex.first(counts.vendorIndex),
         output.vendorDefinitions.first(counts.vendorDefinitions),
         output.vendorSaleRows.first(counts.vendorSaleRows),

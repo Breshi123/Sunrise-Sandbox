@@ -6,6 +6,7 @@
 #include "../../../content/content_catalog.h"
 #include "../../abilities/definition.h"
 #include "../../collectibles/collectible_catalog.h"
+#include "../../entity_names/definition.h"
 #include "../../hash_names/definition.h"
 #include "../../inventory/buckets/definition.h"
 #include "../../items/details/definition.h"
@@ -42,6 +43,7 @@ struct DomainCounts {
     std::size_t spawnNameHashes{};
     std::size_t spawnPoints{};
     std::size_t hashNames{};
+    std::size_t entityNames{};
     std::size_t vendorIndex{};
     std::size_t vendorDefinitions{};
     std::size_t vendorSaleRows{};
@@ -71,6 +73,7 @@ struct MutableDomains {
     std::span<spawn_sets::NameHash> spawnNameHashes;
     std::span<spawn_sets::Point> spawnPoints;
     std::span<hash_names::Name> hashNames;
+    std::span<entity_names::Name> entityNames;
     std::span<vendors::IndexEntry> vendorIndex;
     std::span<vendors::Definition> vendorDefinitions;
     std::span<vendors::SaleRow> vendorSaleRows;
@@ -99,6 +102,7 @@ struct Domains {
     std::span<const spawn_sets::NameHash> spawnNameHashes;
     std::span<const spawn_sets::Point> spawnPoints;
     std::span<const hash_names::Name> hashNames;
+    std::span<const entity_names::Name> entityNames;
     std::span<const vendors::IndexEntry> vendorIndex;
     std::span<const vendors::Definition> vendorDefinitions;
     std::span<const vendors::SaleRow> vendorSaleRows;
