@@ -39,8 +39,10 @@ constexpr std::size_t kObjectDatumStrideOffset = 0x10;
 constexpr std::size_t kObjectDatumBytes = 0xE0;
 constexpr std::size_t kObjectHandleOffset = 0x0C;
 constexpr std::size_t kActivationCapacity = 64;
+constexpr std::size_t kSpawnedEnemyCapacity = 4096;
 constexpr std::uint8_t kActivationAttempts = 4;
 constexpr std::uint64_t kRequestTimeoutMs = 3000;
+constexpr float kEnemyClearDepth = 10000.0F;
 
 using PlacementInitialize = std::uint8_t(__fastcall*)(void*, std::uint32_t);
 using ObjectFactory = std::uint32_t*(__fastcall*)(std::uint32_t*, void*);
@@ -86,6 +88,11 @@ struct Shortcut {
     std::uint32_t amount{};
 };
 
+struct SelectionGroup {
+    std::vector<std::uint32_t> tags{};
+    std::size_t selected{};
+};
+
 hooking::detour::Handle g_updateHook{};
 std::atomic_bool g_installed{};
 PlacementInitialize g_initialize{};
@@ -101,9 +108,84 @@ Request g_request{};
 SRWLOCK g_activationLock{SRWLOCK_INIT};
 std::array<Activation, kActivationCapacity> g_activations{};
 std::size_t g_activationCount{};
+SRWLOCK g_spawnedEnemyLock{SRWLOCK_INIT};
+std::array<std::uint32_t, kSpawnedEnemyCapacity> g_spawnedEnemies{};
+std::size_t g_spawnedEnemyCount{};
+std::atomic_bool g_clearSpawnedEnemiesRequested{};
 SRWLOCK g_shortcutLock{SRWLOCK_INIT};
-std::array<Shortcut, client::spawn::kActionCount> g_shortcuts{};
+std::array<Shortcut, client::spawn::kSpawnActionCount> g_shortcuts{};
+std::array<SelectionGroup, static_cast<std::size_t>(SelectionList::count)> g_selectionGroups{};
 std::array<std::atomic_bool, client::spawn::kActionCount> g_shortcutDown{};
+
+[[nodiscard]] constexpr std::size_t selection_index(SelectionList list) noexcept {
+    return static_cast<std::size_t>(list);
+}
+
+[[nodiscard]] bool navigation_action(client::spawn::Action action,
+                                     SelectionList& list,
+                                     bool& forward) noexcept {
+    switch (action) {
+    case client::spawn::Action::mainPrevious:
+        list = SelectionList::main;
+        forward = false;
+        return true;
+    case client::spawn::Action::mainNext:
+        list = SelectionList::main;
+        forward = true;
+        return true;
+    case client::spawn::Action::projectilePrevious:
+        list = SelectionList::projectile;
+        forward = false;
+        return true;
+    case client::spawn::Action::projectileNext:
+        list = SelectionList::projectile;
+        forward = true;
+        return true;
+    case client::spawn::Action::lootPrevious:
+        list = SelectionList::loot;
+        forward = false;
+        return true;
+    case client::spawn::Action::lootNext:
+        list = SelectionList::loot;
+        forward = true;
+        return true;
+    default:
+        return false;
+    }
+}
+
+void apply_selected_tag_locked(SelectionList list) noexcept {
+    const std::size_t groupIndex = selection_index(list);
+    if (groupIndex >= g_selectionGroups.size()) {
+        return;
+    }
+    SelectionGroup& group = g_selectionGroups[groupIndex];
+    const std::uint32_t tag = group.selected < group.tags.size() ? group.tags[group.selected]
+                                                                 : kInvalidDatum;
+    const std::size_t firstShortcut = groupIndex * 2;
+    if (firstShortcut + 1 >= g_shortcuts.size()) {
+        return;
+    }
+    g_shortcuts[firstShortcut].tag = tag;
+    g_shortcuts[firstShortcut + 1].tag = tag;
+}
+
+void cycle_selection(SelectionList list, bool forward) noexcept {
+    AcquireSRWLockExclusive(&g_shortcutLock);
+    const std::size_t index = selection_index(list);
+    if (index < g_selectionGroups.size()) {
+        SelectionGroup& group = g_selectionGroups[index];
+        if (!group.tags.empty()) {
+            if (forward) {
+                group.selected = (group.selected + 1) % group.tags.size();
+            } else {
+                group.selected = group.selected == 0 ? group.tags.size() - 1 : group.selected - 1;
+            }
+            apply_selected_tag_locked(list);
+        }
+    }
+    ReleaseSRWLockExclusive(&g_shortcutLock);
+}
 
 template <typename T> [[nodiscard]] bool safe_read(const void* source, T& value) noexcept {
     __try {
@@ -153,21 +235,48 @@ void reset_storage(PlacementStorage& storage) noexcept {
     return safe_read(object + kObjectHandleOffset, live) && live == handle ? object : nullptr;
 }
 
-[[nodiscard]] bool needs_activation(std::uint32_t tag) noexcept {
+[[nodiscard]] bool tag_object_type(std::uint32_t tag, std::uint8_t& type) noexcept {
+    type = 0;
     if (g_resolver == nullptr) {
         return false;
     }
     const std::byte* definition = nullptr;
-    std::uint8_t type = 0;
     __try {
         definition = g_resolver(tag);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
-    if (definition == nullptr || !safe_read(definition + kDefinitionObjectType, type)) {
+    return definition != nullptr && safe_read(definition + kDefinitionObjectType, type);
+}
+
+[[nodiscard]] bool needs_activation(std::uint32_t tag) noexcept {
+    std::uint8_t type = 0;
+    if (!tag_object_type(tag, type)) {
         return false;
     }
     return type == 8 || type == 11 || type == 20 || type == 21;
+}
+
+[[nodiscard]] bool enemy_tag(std::uint32_t tag) noexcept {
+    std::uint8_t type = 0;
+    return tag_object_type(tag, type) && (type == 12 || type == 13);
+}
+
+void track_spawned_enemy(std::uint32_t handle) noexcept {
+    AcquireSRWLockExclusive(&g_spawnedEnemyLock);
+    if (g_spawnedEnemyCount == g_spawnedEnemies.size()) {
+        std::size_t kept = 0;
+        for (std::size_t index = 0; index < g_spawnedEnemyCount; ++index) {
+            if (resolve_object(g_spawnedEnemies[index]) != nullptr) {
+                g_spawnedEnemies[kept++] = g_spawnedEnemies[index];
+            }
+        }
+        g_spawnedEnemyCount = kept;
+    }
+    if (g_spawnedEnemyCount < g_spawnedEnemies.size()) {
+        g_spawnedEnemies[g_spawnedEnemyCount++] = handle;
+    }
+    ReleaseSRWLockExclusive(&g_spawnedEnemyLock);
 }
 
 void queue_activation(std::uint32_t handle,
@@ -210,6 +319,56 @@ void service_activations() noexcept {
         ++index;
     }
     ReleaseSRWLockExclusive(&g_activationLock);
+}
+
+void service_spawned_enemy_clear() noexcept {
+    if (!g_clearSpawnedEnemiesRequested.load(std::memory_order_acquire) || g_transform == nullptr) {
+        return;
+    }
+    std::array<float, 3> player{};
+    if (!teleport::current_position(player)) {
+        return;
+    }
+    if (!g_clearSpawnedEnemiesRequested.exchange(false, std::memory_order_acq_rel)) {
+        return;
+    }
+
+    const std::array<float, 8> transform{
+        0.0F, 0.0F, 0.0F, 1.0F, player[0], player[1], player[2] - kEnemyClearDepth, 1.0F};
+    std::size_t cleared = 0;
+    std::size_t kept = 0;
+    AcquireSRWLockExclusive(&g_spawnedEnemyLock);
+    for (std::size_t index = 0; index < g_spawnedEnemyCount; ++index) {
+        std::byte* const object = resolve_object(g_spawnedEnemies[index]);
+        if (object == nullptr) {
+            continue;
+        }
+        bool moved = false;
+        __try {
+            g_transform(object, transform.data());
+            moved = true;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+        if (moved) {
+            ++cleared;
+        } else {
+            g_spawnedEnemies[kept++] = g_spawnedEnemies[index];
+        }
+    }
+    g_spawnedEnemyCount = kept;
+    ReleaseSRWLockExclusive(&g_spawnedEnemyLock);
+
+    std::array<char, 112> line{};
+    const int written = std::snprintf(line.data(),
+                                      line.size(),
+                                      "ev=spawn stage=clear_enemies result=ok moved=%zu retained=%zu",
+                                      cleared,
+                                      kept);
+    if (written > 0) {
+        core::log::write(core::log::Channel::client,
+                         core::log::Level::info,
+                         {line.data(), static_cast<std::size_t>(written)});
+    }
 }
 
 [[nodiscard]] bool camera_rotation(const std::array<float, 3>& forward,
@@ -303,8 +462,13 @@ void service_activations() noexcept {
                     position.data(),
                     sizeof position);
         (void)g_factory(&result, descriptor);
-        if (result != kInvalidDatum && needs_activation(tag)) {
-            queue_activation(result, rotation, position);
+        if (result != kInvalidDatum) {
+            if (enemy_tag(tag)) {
+                track_spawned_enemy(result);
+            }
+            if (needs_activation(tag)) {
+                queue_activation(result, rotation, position);
+            }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         result = kInvalidDatum;
@@ -405,7 +569,22 @@ void poll_shortcuts() noexcept {
             continue;
         }
 
+        const auto action = static_cast<client::spawn::Action>(index);
+        if (action == client::spawn::Action::clearSpawnedEnemies) {
+            g_clearSpawnedEnemiesRequested.store(true, std::memory_order_release);
+            continue;
+        }
+        SelectionList list{};
+        bool forward = false;
+        if (navigation_action(action, list, forward)) {
+            cycle_selection(list, forward);
+            continue;
+        }
+
         Shortcut shortcut{};
+        if (index >= g_shortcuts.size()) {
+            continue;
+        }
         AcquireSRWLockShared(&g_shortcutLock);
         shortcut = g_shortcuts[index];
         ReleaseSRWLockShared(&g_shortcutLock);
@@ -425,6 +604,7 @@ void __fastcall player_component_update(void* object, void* input, void* authore
     if (teleport::is_controlled_object(object)) {
         poll_shortcuts();
         service_activations();
+        service_spawned_enemy_clear();
         service_request();
     }
 }
@@ -492,8 +672,13 @@ void uninstall() noexcept {
     AcquireSRWLockExclusive(&g_activationLock);
     g_activationCount = 0;
     ReleaseSRWLockExclusive(&g_activationLock);
+    AcquireSRWLockExclusive(&g_spawnedEnemyLock);
+    g_spawnedEnemyCount = 0;
+    ReleaseSRWLockExclusive(&g_spawnedEnemyLock);
+    g_clearSpawnedEnemiesRequested.store(false, std::memory_order_release);
     AcquireSRWLockExclusive(&g_shortcutLock);
     g_shortcuts = {};
+    g_selectionGroups = {};
     ReleaseSRWLockExclusive(&g_shortcutLock);
     for (std::atomic_bool& down : g_shortcutDown) {
         down.store(false, std::memory_order_relaxed);
@@ -605,6 +790,57 @@ void configure_shortcut(client::spawn::Action action,
     AcquireSRWLockExclusive(&g_shortcutLock);
     g_shortcuts[index] = shortcut;
     ReleaseSRWLockExclusive(&g_shortcutLock);
+}
+
+void configure_candidates(SelectionList list,
+                          std::span<const std::uint32_t> tags,
+                          std::size_t selected) noexcept {
+    const std::size_t index = selection_index(list);
+    if (index >= g_selectionGroups.size()) {
+        return;
+    }
+    AcquireSRWLockExclusive(&g_shortcutLock);
+    SelectionGroup& group = g_selectionGroups[index];
+    group.tags.assign(tags.begin(), tags.end());
+    group.selected = selected < group.tags.size() ? selected : 0;
+    apply_selected_tag_locked(list);
+    ReleaseSRWLockExclusive(&g_shortcutLock);
+}
+
+std::size_t selected_candidate(SelectionList list) noexcept {
+    const std::size_t index = selection_index(list);
+    if (index >= g_selectionGroups.size()) {
+        return 0;
+    }
+    AcquireSRWLockShared(&g_shortcutLock);
+    const std::size_t selected = g_selectionGroups[index].selected;
+    ReleaseSRWLockShared(&g_shortcutLock);
+    return selected;
+}
+
+void select_candidate(SelectionList list, std::size_t selected) noexcept {
+    const std::size_t index = selection_index(list);
+    if (index >= g_selectionGroups.size()) {
+        return;
+    }
+    AcquireSRWLockExclusive(&g_shortcutLock);
+    SelectionGroup& group = g_selectionGroups[index];
+    if (selected < group.tags.size()) {
+        group.selected = selected;
+        apply_selected_tag_locked(list);
+    }
+    ReleaseSRWLockExclusive(&g_shortcutLock);
+}
+
+std::size_t spawned_enemy_count() noexcept {
+    AcquireSRWLockShared(&g_spawnedEnemyLock);
+    const std::size_t count = g_spawnedEnemyCount;
+    ReleaseSRWLockShared(&g_spawnedEnemyLock);
+    return count;
+}
+
+void request_clear_spawned_enemies() noexcept {
+    g_clearSpawnedEnemiesRequested.store(true, std::memory_order_release);
 }
 
 void cancel() noexcept {

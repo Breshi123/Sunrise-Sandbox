@@ -15,10 +15,18 @@ enum class Action : std::uint8_t {
     projectileCrosshair,
     lootPlayer,
     lootCrosshair,
+    mainPrevious,
+    mainNext,
+    projectilePrevious,
+    projectileNext,
+    lootPrevious,
+    lootNext,
+    clearSpawnedEnemies,
     count,
 };
 
 inline constexpr std::size_t kActionCount = static_cast<std::size_t>(Action::count);
+inline constexpr std::size_t kSpawnActionCount = static_cast<std::size_t>(Action::mainPrevious);
 inline constexpr std::uint64_t kDefaultHiddenMainTypes = (1ULL << 2) | (1ULL << 3)
                                                          | (1ULL << 4) | (1ULL << 5)
                                                          | (1ULL << 6) | (1ULL << 7)

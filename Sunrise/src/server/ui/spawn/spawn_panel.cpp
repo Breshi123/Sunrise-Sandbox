@@ -112,6 +112,7 @@ struct Candidate {
 struct Column {
     std::vector<Candidate> candidates{};
     std::vector<picker::Item> items{};
+    std::vector<std::uint32_t> tags{};
     std::size_t selected{};
     native::Settings settings{};
     int amount{1};
@@ -334,10 +335,18 @@ void finish_column(Column& column) {
         column.candidates.end());
     column.items.clear();
     column.items.reserve(column.candidates.size());
+    column.tags.clear();
+    column.tags.reserve(column.candidates.size());
     for (const Candidate& candidate : column.candidates) {
         column.items.push_back({candidate.label.data()});
+        column.tags.push_back(candidate.tag);
     }
     column.selected = 0;
+}
+
+void configure_candidates(native::SelectionList list, const Column& column) noexcept {
+    native::configure_candidates(
+        list, {column.tags.data(), column.tags.size()}, column.selected);
 }
 
 void apply_main_type_filter(std::uint64_t hiddenTypes) {
@@ -349,6 +358,7 @@ void apply_main_type_filter(std::uint64_t hiddenTypes) {
         }
     }
     finish_column(g_main);
+    configure_candidates(native::SelectionList::main, g_main);
 }
 
 void refresh() noexcept {
@@ -376,6 +386,8 @@ void refresh() noexcept {
     apply_main_type_filter(spawn_keys::get().hiddenMainTypes);
     finish_column(g_projectile);
     finish_column(g_loot);
+    configure_candidates(native::SelectionList::projectile, g_projectile);
+    configure_candidates(native::SelectionList::loot, g_loot);
     g_scanned = true;
 }
 
@@ -520,12 +532,14 @@ void draw_settings(Column& column, const char* id, SpawnAllMode spawnAllMode) no
 
 void draw_keybinds(spawn_keys::Action playerAction,
                    spawn_keys::Action crosshairAction,
+                   spawn_keys::Action previousAction,
+                   spawn_keys::Action nextAction,
                    spawn_keys::Keybinds& keybinds,
                    bool& changed) noexcept {
     if (!ImGui::TreeNodeEx("Keybinds", ImGuiTreeNodeFlags_SpanAvailWidth)) {
         return;
     }
-    const float labelWidth = ImGui::CalcTextSize("At crosshair").x
+    const float labelWidth = ImGui::CalcTextSize("Previous item").x
                              + ImGui::GetStyle().ItemSpacing.x * 2.0F;
     const float controlWidth = ImGui::GetContentRegionAvail().x - labelWidth;
     ImGui::AlignTextToFramePadding();
@@ -542,32 +556,75 @@ void draw_keybinds(spawn_keys::Action playerAction,
                          keybinds.virtualKeys[static_cast<std::size_t>(crosshairAction)],
                          controlWidth)
               || changed;
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Previous item");
+    ImGui::SameLine(labelWidth);
+    changed = key_picker(previousAction,
+                         keybinds.virtualKeys[static_cast<std::size_t>(previousAction)],
+                         controlWidth)
+              || changed;
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Next item");
+    ImGui::SameLine(labelWidth);
+    changed = key_picker(nextAction,
+                         keybinds.virtualKeys[static_cast<std::size_t>(nextAction)],
+                         controlWidth)
+              || changed;
+    ImGui::TreePop();
+}
+
+void draw_spawned_enemy_cleanup(spawn_keys::Keybinds& keybinds, bool& changed) noexcept {
+    if (!ImGui::TreeNodeEx("Spawned enemy cleanup", ImGuiTreeNodeFlags_SpanAvailWidth)) {
+        return;
+    }
+    const std::size_t count = native::spawned_enemy_count();
+    ImGui::TextDisabled("Tracked spawned Bipeds/Creatures: %zu", count);
+    ImGui::BeginDisabled(count == 0);
+    if (ImGui::Button("Kill spawned enemies", ImVec2(-FLT_MIN, 0.0F))) {
+        native::request_clear_spawned_enemies();
+    }
+    ImGui::EndDisabled();
+
+    constexpr spawn_keys::Action action = spawn_keys::Action::clearSpawnedEnemies;
+    const float labelWidth = ImGui::CalcTextSize("Keybind").x
+                             + ImGui::GetStyle().ItemSpacing.x * 2.0F;
+    const float controlWidth = ImGui::GetContentRegionAvail().x - labelWidth;
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Keybind");
+    ImGui::SameLine(labelWidth);
+    changed = key_picker(action,
+                         keybinds.virtualKeys[static_cast<std::size_t>(action)],
+                         controlWidth)
+              || changed;
     ImGui::TreePop();
 }
 
 void draw_column(const char* title,
                  const char* id,
                  Column& column,
+                 native::SelectionList selectionList,
                  spawn_keys::Action playerAction,
                  spawn_keys::Action crosshairAction,
+                 spawn_keys::Action previousAction,
+                 spawn_keys::Action nextAction,
                  bool showTypeFilter,
                  SpawnAllMode spawnAllMode,
                  spawn_keys::Keybinds& keybinds,
                  bool& keybindsChanged) noexcept {
     ImGui::PushID(id);
-    const std::uint32_t selectedTag = column.selected < column.candidates.size()
-                                          ? column.candidates[column.selected].tag
-                                          : 0xFFFFFFFFU;
-    const std::uint32_t amount = static_cast<std::uint32_t>((std::max)(column.amount, 1));
-    native::configure_shortcut(playerAction, selectedTag, amount, column.settings);
-    native::configure_shortcut(crosshairAction, selectedTag, amount, column.settings);
+    const std::size_t shortcutSelection = native::selected_candidate(selectionList);
+    if (shortcutSelection < column.candidates.size()) {
+        column.selected = shortcutSelection;
+    }
 
     if (ImGui::TreeNodeEx(title, ImGuiTreeNodeFlags_SpanAvailWidth)) {
         if (showTypeFilter) {
             draw_main_type_filter(keybinds, keybindsChanged);
         }
         const std::span<const picker::Item> rows(column.items.data(), column.items.size());
-        (void)picker::control("picker", preview(column), rows, column.selected);
+        if (picker::control("picker", preview(column), rows, column.selected)) {
+            native::select_candidate(selectionList, column.selected);
+        }
 
         ImGui::BeginDisabled(column.selected >= column.candidates.size() || native::busy());
         if (ImGui::Button("At player", ImVec2(ImGui::GetContentRegionAvail().x * 0.49F, 0.0F))) {
@@ -584,10 +641,21 @@ void draw_column(const char* title,
                                   column.settings);
         }
         ImGui::EndDisabled();
-        draw_keybinds(playerAction, crosshairAction, keybinds, keybindsChanged);
+        draw_keybinds(playerAction,
+                      crosshairAction,
+                      previousAction,
+                      nextAction,
+                      keybinds,
+                      keybindsChanged);
         draw_settings(column, "settings", spawnAllMode);
         ImGui::TreePop();
     }
+    const std::uint32_t selectedTag = column.selected < column.candidates.size()
+                                          ? column.candidates[column.selected].tag
+                                          : 0xFFFFFFFFU;
+    const std::uint32_t amount = static_cast<std::uint32_t>((std::max)(column.amount, 1));
+    native::configure_shortcut(playerAction, selectedTag, amount, column.settings);
+    native::configure_shortcut(crosshairAction, selectedTag, amount, column.settings);
     ImGui::PopID();
 }
 
@@ -615,11 +683,15 @@ void draw() noexcept {
 
     spawn_keys::Keybinds keybinds = spawn_keys::get();
     bool keybindsChanged = false;
+    draw_spawned_enemy_cleanup(keybinds, keybindsChanged);
     draw_column("Main spawner",
                 "main",
                 g_main,
+                native::SelectionList::main,
                 spawn_keys::Action::mainPlayer,
                 spawn_keys::Action::mainCrosshair,
+                spawn_keys::Action::mainPrevious,
+                spawn_keys::Action::mainNext,
                 true,
                 SpawnAllMode::selectedType,
                 keybinds,
@@ -627,8 +699,11 @@ void draw() noexcept {
     draw_column("Projectile spawner",
                 "projectile",
                 g_projectile,
+                native::SelectionList::projectile,
                 spawn_keys::Action::projectilePlayer,
                 spawn_keys::Action::projectileCrosshair,
+                spawn_keys::Action::projectilePrevious,
+                spawn_keys::Action::projectileNext,
                 false,
                 SpawnAllMode::all,
                 keybinds,
@@ -636,8 +711,11 @@ void draw() noexcept {
     draw_column("Loot spawner",
                 "loot",
                 g_loot,
+                native::SelectionList::loot,
                 spawn_keys::Action::lootPlayer,
                 spawn_keys::Action::lootCrosshair,
+                spawn_keys::Action::lootPrevious,
+                spawn_keys::Action::lootNext,
                 false,
                 SpawnAllMode::all,
                 keybinds,

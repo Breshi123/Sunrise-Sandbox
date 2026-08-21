@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 
@@ -11,6 +12,13 @@ namespace sunrise::client::hooks::spawn {
 enum class Origin : std::uint8_t {
     player,
     crosshair,
+};
+
+enum class SelectionList : std::uint8_t {
+    main,
+    projectile,
+    loot,
+    count,
 };
 
 struct Settings {
@@ -46,6 +54,15 @@ void configure_shortcut(client::spawn::Action action,
                         std::uint32_t tag,
                         std::uint32_t amount,
                         const Settings& settings) noexcept;
+
+void configure_candidates(SelectionList list,
+                          std::span<const std::uint32_t> tags,
+                          std::size_t selected) noexcept;
+[[nodiscard]] std::size_t selected_candidate(SelectionList list) noexcept;
+void select_candidate(SelectionList list, std::size_t selected) noexcept;
+
+[[nodiscard]] std::size_t spawned_enemy_count() noexcept;
+void request_clear_spawned_enemies() noexcept;
 
 void cancel() noexcept;
 

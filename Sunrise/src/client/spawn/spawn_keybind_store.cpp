@@ -23,6 +23,13 @@ constexpr std::array<std::string_view, kActionCount> kNames{
     "projectile_crosshair",
     "loot_player",
     "loot_crosshair",
+    "main_previous",
+    "main_next",
+    "projectile_previous",
+    "projectile_next",
+    "loot_previous",
+    "loot_next",
+    "clear_spawned_enemies",
 };
 
 SRWLOCK g_lock{SRWLOCK_INIT};
@@ -121,6 +128,10 @@ void load() noexcept {
         "{\n  \"main_player\": %u,\n  \"main_crosshair\": %u,\n"
         "  \"projectile_player\": %u,\n  \"projectile_crosshair\": %u,\n"
         "  \"loot_player\": %u,\n  \"loot_crosshair\": %u,\n"
+        "  \"main_previous\": %u,\n  \"main_next\": %u,\n"
+        "  \"projectile_previous\": %u,\n  \"projectile_next\": %u,\n"
+        "  \"loot_previous\": %u,\n  \"loot_next\": %u,\n"
+        "  \"clear_spawned_enemies\": %u,\n"
         "  \"hidden_main_types\": %llu\n}\n",
         static_cast<unsigned>(keybinds.virtualKeys[0]),
         static_cast<unsigned>(keybinds.virtualKeys[1]),
@@ -128,6 +139,13 @@ void load() noexcept {
         static_cast<unsigned>(keybinds.virtualKeys[3]),
         static_cast<unsigned>(keybinds.virtualKeys[4]),
         static_cast<unsigned>(keybinds.virtualKeys[5]),
+        static_cast<unsigned>(keybinds.virtualKeys[6]),
+        static_cast<unsigned>(keybinds.virtualKeys[7]),
+        static_cast<unsigned>(keybinds.virtualKeys[8]),
+        static_cast<unsigned>(keybinds.virtualKeys[9]),
+        static_cast<unsigned>(keybinds.virtualKeys[10]),
+        static_cast<unsigned>(keybinds.virtualKeys[11]),
+        static_cast<unsigned>(keybinds.virtualKeys[12]),
         static_cast<unsigned long long>(keybinds.hiddenMainTypes));
     if (size <= 0 || static_cast<std::size_t>(size) >= document.size()) {
         return false;
