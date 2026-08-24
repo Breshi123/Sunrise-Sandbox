@@ -1,11 +1,9 @@
-# Sunrise
+# Sunrise (Sandbox)
 
-Destiny 2 Offline Exploration Mod
+Destiny 2: Season of Arrivals Offline Sandbox Mod
 
-> This mod installs onto an old build of the game and allows you to play it offline, loading into
-> destinations and exploring them.
->
-> Most gameplay features are not currently supported. (Missions, Enemies, NPCs, Quests, Persistent Saves, ...)
+> This mod installs onto an old Season of Arrivals build of the game and allows you to play it offline, loading into
+> destinations and exploring them, while also allowing you to mess around with your character's gear and spawn entities.
 
 - [Install Instructions](https://github.com/stanuwu/Sunrise/wiki/Installing)
 - [FAQ](https://github.com/stanuwu/Sunrise/wiki/FAQ)
@@ -13,24 +11,17 @@ Destiny 2 Offline Exploration Mod
 - [Discord](https://discord.gg/22JS6et5k9)
 
 ## Features
-- Load into any Destination (matchmade activities are currently broken)
-- Exploration Features (Fly, Noclip, Activity Override, ...)
-- Basic Inventory Management
+- Load into any Destination or Activity (Some activity spawns are broken, currently working on this)
+- Exploration Features (Teleport, Fly, Noclip, Activity Override, etc.)
+- Basic Inventory Management & Features
+- Spawn entities wherever you want (Enemies, Vendors, Loot, etc.)
 
 ## WIP
 
-This mod is work in progress. Things might break or work in unexpected ways. There is also currently
-a lack of documentation. This will improve over the coming weeks.
+Sunrise (Sandbox) is a work in progress. Things may break or not work properly.
 
-## Support Me
-
-Leave a star on this repo.
-
-If you want to support my open source work you can find the means on my
-[profile](https://github.com/stanuwu). Also consider donating to charity instead.
-
-All content released under this project is free and open source. If someone is trying to sell you
-something you are getting scammed.
+Sunrise (Sandbox) is free and open source. If someone is trying to sell you
+something, you are getting scammed.
 
 ## Rules
 Issues are for bug reports only.
@@ -38,50 +29,6 @@ Issues are for bug reports only.
 PRs are for pull requests only.
 
 Do not go and argue/chat there, you can do that on the discord.
-
-## Building
-
-### Windows
-
-Install Visual Studio 2026 with the **Desktop development with C++** workload. The project builds
-against the v145 toolset and the 10.0.26100 Windows SDK, so check that both are selected in the
-installer.
-
-The easiest route is to open `Sunrise.sln`, select the `Release` `x64` configuration and build.
-
-To build from a command line, use the Developer PowerShell for VS 2026:
-
-1. Clone the repository
-```powershell
-git clone https://github.com/stanuwu/Sunrise
-cd Sunrise
-```
-
-2. Build the solution
-```powershell
-msbuild Sunrise.sln /m /p:Configuration=Release /p:Platform=x64
-```
-
-### Linux
-
-Make sure you have `git`, `cmake`, `clang`, `ninja`, `llvm`, and `xwin` installed.
-
-1. Clone the repository
-```bash
-$ git clone https://github.com/stanuwu/Sunrise
-$ cd Sunrise
-```
-
-2. Download Windows headers:
-```bash
-$ xwin --accept-license splat --include-debug-libs --sdk-version 10.0.26100 --output .xwin-cache
-```
-
-3. Configure and build the project
-```bash
-$ cmake -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$(pwd)/linux-to-win-toolchain.cmake -DCMAKE_BUILD_TYPE=Release
-$ cmake --build build --config Release
-```
 
 ## Contributing
 
@@ -98,7 +45,7 @@ Pull Requests are welcome. Please follow these rules:
 - **Complete Implementations** - Do not PR features that are not completed and/or have non functional parts.
 - **Server Focus** - For features that are intended to be part of the server, don't abuse client patches. Sometimes its needed but mostly everything should go through the right requests and pushes.
 
-## Credits
+## Sunrise Credits
 
 ### All Contributors
 
@@ -147,11 +94,10 @@ Pull Requests are welcome. Please follow these rules:
 - https://github.com/nblockbuster/tachyscope
 - https://github.com/cohaereo/destinydocs
 - https://github.com/MontagueM/DestinyUnpacker
-- https://github.com/nblockbuster/bungie-lua-decompiler
 
 ### Other:
 
-- [Ginsor](https://x.com/GinsorKR) - Gave me some useful pointers
+- [Ginsor](https://x.com/GinsorKR) - Gave some useful pointers
 
 > Want to be added to or removed from the credits? Let me know.
 
@@ -170,9 +116,7 @@ connect to any servers, it runs completely locally. We do not offer any servers 
 
 This project is not for profit. It does not affect live servers or newer versions of the game where
 research like this could pose a security risk. No game data will be included in the release so this
-is not a copyright violation. This is also not a circumvention of protective measures. Please do not
-file any DMCA or other copyright claims against this. Legal action will be taken for abuse of the
-copyright system to censor this work.
+is not a copyright violation. This is also not a circumvention of protective measures.
 
 ## AI Disclaimer
 
